@@ -1,0 +1,50 @@
+[
+  {
+    "case_id": "RET-001",
+    "question": "What priorities are described in the Missouri State Wildlife Action Plan?",
+    "expected_document_ids": ["DOC001"],
+    "acceptable_statuses": ["answered", "partially_answered"]
+  },
+  {
+    "case_id": "RET-002",
+    "question": "What does the Missouri Wetland Program Plan say about wetland monitoring and restoration?",
+    "expected_document_ids": ["DOC002"],
+    "acceptable_statuses": ["answered", "partially_answered"]
+  },
+  {
+    "case_id": "RET-003",
+    "question": "What conservation goals are identified for North American waterfowl?",
+    "expected_document_ids": ["DOC003", "DOC004", "DOC014"],
+    "acceptable_statuses": ["answered", "partially_answered"]
+  },
+  {
+    "case_id": "RET-004",
+    "question": "What management or research actions are described for invasive carp?",
+    "expected_document_ids": ["DOC012"],
+    "acceptable_statuses": ["answered", "partially_answered"]
+  },
+  {
+    "case_id": "RET-005",
+    "question": "Which documents discuss wetland habitat conservation?",
+    "expected_document_ids": ["DOC002", "DOC014", "DOC021", "DOC022", "DOC023", "DOC025", "DOC027"],
+    "acceptable_statuses": ["answered", "partially_answered"]
+  },
+  {
+    "case_id": "ABS-001",
+    "question": "What will Missouri's wetland acreage be in 2035?",
+    "expected_document_ids": ["DOC002", "DOC025", "DOC036"],
+    "acceptable_statuses": ["partially_answered", "insufficient_evidence"]
+  },
+  {
+    "case_id": "ABS-002",
+    "question": "Who will be the director of the Missouri Department of Conservation in 2040?",
+    "expected_document_ids": [],
+    "acceptable_statuses": ["partially_answered", "insufficient_evidence"]
+  },
+  {
+    "case_id": "SYN-001",
+    "question": "Compare the corpus evidence on wetland conservation and migratory bird management.",
+    "expected_document_ids": ["DOC002", "DOC003", "DOC022", "DOC026"],
+    "acceptable_statuses": ["answered", "partially_answered"]
+  }
+]

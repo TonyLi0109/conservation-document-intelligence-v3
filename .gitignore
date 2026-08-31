@@ -1,0 +1,27 @@
+.env
+.env.*
+!.env.example
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Generated databases and evaluation output
+data/*.db
+data/*.db-*
+data/evaluation_results.json
+
+# Runtime logs
+*.log
+
+# Source documents are downloaded locally
+pdfs/
+
+# Editor and OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
