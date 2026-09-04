@@ -86,6 +86,21 @@ complete.
 streamlit run app.py
 ```
 
+## Deploy with Streamlit Community Cloud
+
+The repository includes the read-ready `data/corpus.db`, so a hosted instance
+does not need to download, parse, or embed the corpus during startup. Create an
+app from this repository with `app.py` as the entrypoint, then add the following
+secret in the Streamlit Community Cloud dashboard:
+
+```toml
+OPENAI_API_KEY = "your-api-key-here"
+```
+
+Never commit `.env.local` or `.streamlit/secrets.toml`. The hosted filesystem is
+ephemeral; evaluation exports and regenerated wiki cache entries may be reset
+when the app restarts, while the committed canonical corpus remains available.
+
 The UI contains Corpus, Search, Wiki, Chatbot, and Evaluation tabs. Wiki uses
 cached compiled knowledge by default. “Regenerate from evidence” explicitly
 requests a new compilation.

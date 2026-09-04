@@ -14,6 +14,12 @@ data/*.db
 data/*.db-*
 data/evaluation_results.json
 
+# The canonical read-ready corpus is intentionally deployed with the app.
+!data/corpus.db
+
+# Deployment secrets must only be configured in the hosting dashboard.
+.streamlit/secrets.toml
+
 # Runtime logs
 *.log
 
