@@ -12,7 +12,18 @@ from evaluation import run_evaluation
 from main import ask_chatbot_with_context, search_corpus
 from source_catalog import load_source_catalog
 from validator import format_artifact_location
-from wiki_compiler import generate_extractive_wiki_concept, generate_wiki_concept
+import wiki_compiler
+
+
+# Module-qualified access keeps startup resilient while Streamlit Cloud replaces
+# files during a Git sync; it avoids a top-level ``cannot import name`` crash if
+# app.py becomes visible a moment before the matching compiler file.
+generate_wiki_concept = wiki_compiler.generate_wiki_concept
+generate_extractive_wiki_concept = getattr(
+    wiki_compiler,
+    "generate_extractive_wiki_concept",
+    generate_wiki_concept,
+)
 
 
 APP_TITLE = "Conservation Document Intelligence"
