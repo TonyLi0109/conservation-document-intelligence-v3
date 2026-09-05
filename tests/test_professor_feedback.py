@@ -7,6 +7,7 @@ from data_models import KnowledgeArtifact
 from database import KnowledgeStore, prepare_runtime_database
 from main import (
     _direct_existence_answer,
+    _direct_fiscal_year_comparison,
     _direct_native_status_answer,
     _ensure_polar_answer_prefix,
 )
@@ -326,3 +327,45 @@ def test_polar_context_with_unsupported_facet_is_not_prefixed_yes() -> None:
     _ensure_polar_answer_prefix("Are invasive carp native to Missouri?", envelope)
 
     assert envelope["claims"][0]["text"] == "Invasive carp are present in Missouri."
+
+
+def test_fy_comparison_stays_with_requested_annual_reports(tmp_path) -> None:
+    store = KnowledgeStore(tmp_path / "comparison.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC018",
+            title="MDC Annual Review FY2021",
+            page_number="Web",
+            original_text_chunk="The annual review describes habitat partnerships.",
+        ),
+        [1.0, 0.0],
+    )
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC016",
+            title="MDC Annual Review FY2024",
+            page_number="Web",
+            original_text_chunk=(
+                "In FY24, the working group provided reviews for outreach materials, "
+                "novel equipment permits for invasive carp removal, and regulation "
+                "changes related to invasive species. Intensive efforts on the lower "
+                "Grand River resulted in over 19 tons of invasive carp being removed "
+                "from the lower Grand River."
+            ),
+        ),
+        [1.0, 0.0],
+    )
+
+    result = _direct_fiscal_year_comparison(
+        "Compare the invasive carp work described in FY2021 and FY2024.", store
+    )
+
+    assert result is not None
+    answer, preamble, sources = result
+    assert "FY2024 reported" in answer
+    assert "over 19 tons" in answer
+    assert "FY2021 annual review does not explicitly discuss" in preamble
+    assert [source.document_id for source in sources] == ["DOC016"]
+    assert "DOC006" not in answer
+    assert "Unsupported facets" not in answer
+    store.close()

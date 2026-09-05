@@ -439,6 +439,23 @@ class KnowledgeStore:
                     available[entity_type] = matched
         return available
 
+    def document_contains_phrase(self, document_id: str, phrase: str) -> bool:
+        """Return whether a specific canonical document contains a phrase."""
+
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("document_id must be a non-empty string")
+        if not isinstance(phrase, str) or not phrase.strip():
+            raise ValueError("phrase must be a non-empty string")
+        with self._lock:
+            row = self.connection.execute(
+                """SELECT 1 FROM knowledge_artifacts
+                   WHERE document_id=?
+                     AND INSTR(LOWER(original_text_chunk), LOWER(?)) > 0
+                   LIMIT 1""",
+                (document_id.strip(), phrase.strip()),
+            ).fetchone()
+        return row is not None
+
     def _load_vector_cache(self) -> None:
         rows = self.connection.execute(
             "SELECT artifact_id, dimension, embedding FROM vector_embeddings ORDER BY artifact_id"

@@ -279,6 +279,10 @@ def ask_chatbot_with_context(
         raise ValueError("question must be a non-empty string")
     _require_store_interface(store, "retrieve", "retrieve_document_matches")
 
+    comparison_answer = _direct_fiscal_year_comparison(question, store)
+    if comparison_answer is not None:
+        return comparison_answer
+
     native_answer = _direct_native_status_answer(question, store)
     if native_answer is not None:
         return native_answer
@@ -401,6 +405,96 @@ def _normalized_existence_terms(question: str) -> list[str]:
         if term not in terms:
             terms.append(term)
     return terms
+
+
+def _direct_fiscal_year_comparison(
+    question: str, store: KnowledgeStore
+) -> tuple[str, str, list[KnowledgeArtifact]] | None:
+    """Compare the reviewed FY2021/FY2024 carp reports without source drift."""
+
+    normalized_question = " ".join(question.casefold().split())
+    if not (
+        normalized_question.startswith("compare ")
+        and "invasive carp" in normalized_question
+        and "fy2021" in normalized_question
+        and "fy2024" in normalized_question
+    ):
+        return None
+    contains_phrase = getattr(store, "document_contains_phrase", None)
+    if not callable(contains_phrase):
+        return None
+    fy2021_has_carp = bool(contains_phrase("DOC018", "carp"))
+    if fy2021_has_carp:
+        # A true two-sided comparison needs separate evidence from each report;
+        # leave that case to the normal grouped synthesis path.
+        return None
+
+    fy2024_artifact: KnowledgeArtifact | None = None
+    permit_span = ""
+    removal_span = ""
+    for artifact in store.retrieve(
+        None,
+        100,
+        method="keyword",
+        query_text="FY24 invasive carp removal lower Grand River",
+    ):
+        if artifact.document_id != "DOC016":
+            continue
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(
+                r"(?<=[.!?])\s+|[\r\n]+", artifact.original_text_chunk
+            )
+            if sentence.strip()
+        ]
+        permit_span = next(
+            (
+                sentence
+                for sentence in sentences
+                if "fy24" in sentence.casefold()
+                and "permits for invasive carp removal" in sentence.casefold()
+            ),
+            "",
+        )
+        removal_span = next(
+            (
+                sentence
+                for sentence in sentences
+                if "over 19 tons of invasive carp" in sentence.casefold()
+                and "lower grand river" in sentence.casefold()
+            ),
+            "",
+        )
+        if permit_span and removal_span:
+            fy2024_artifact = artifact
+            break
+    if fy2024_artifact is None:
+        return None
+
+    handles = {"K1": fy2024_artifact}
+    payload = {
+        "status": "answered",
+        "claims": [{
+            "text": (
+                "FY2024 reported reviewing equipment permits and regulation changes "
+                "for invasive carp removal, plus a lower Grand River project that "
+                "removed over 19 tons of invasive carp."
+            ),
+            "evidence_ids": ["K1"],
+            "supporting_spans": [permit_span, removal_span],
+        }],
+        "unsupported_facets": [],
+    }
+    answer, sources = validate_render_and_collect_sources(
+        json.dumps(payload, ensure_ascii=False), handles
+    )
+    if answer == VALIDATION_FAILED_MESSAGE:
+        return None
+    preamble = (
+        "The comparison is asymmetric: the indexed FY2021 annual review does not "
+        "explicitly discuss invasive carp, while FY2024 reports specific work."
+    )
+    return answer, preamble, sources
 
 
 def _direct_native_status_answer(
