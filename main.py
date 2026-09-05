@@ -42,7 +42,7 @@ DOCUMENT_DISCOVERY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SIMPLE_EXISTENCE_PATTERN = re.compile(
-    r"^\s*(?:are|is|do|does|did|has|have)\b", re.IGNORECASE
+    r"^\s*(?:are|is|do|does|did|has|have|was|were)\b", re.IGNORECASE
 )
 EXISTENCE_STOPWORDS = {
     "a", "an", "any", "are", "did", "do", "does", "has", "have", "in",
@@ -261,6 +261,13 @@ def ask_chatbot_with_context(
     if not isinstance(store, KnowledgeStore):
         raise TypeError("store must be a KnowledgeStore")
 
+    # Resolve narrow yes/no existence questions locally before paying for an
+    # embedding or generation request. The helper returns only when one exact,
+    # affirmative canonical sentence contains every meaningful question term.
+    direct_answer = _direct_existence_answer(question, store)
+    if direct_answer is not None:
+        return direct_answer
+
     if DOCUMENT_DISCOVERY_PATTERN.search(question):
         artifacts = store.retrieve_document_matches(
             question, top_k=max(10, top_k)
@@ -314,10 +321,6 @@ def ask_chatbot_with_context(
             artifact_handles,
         )
         return answer, "No relevant evidence was retrieved from the corpus.", sources
-    direct_answer = _direct_existence_answer(question, store)
-    if direct_answer is not None:
-        return direct_answer
-
     user_prompt = build_synthesis_prompt(question, artifact_handles)
     max_claims, max_output_tokens, _ = answer_length_constraints(question)
     try:
@@ -333,6 +336,7 @@ def ask_chatbot_with_context(
         expected_fields = {"preamble", "status", "claims", "unsupported_facets"}
         if not isinstance(envelope, dict) or set(envelope) != expected_fields:
             raise ValueError("Chatbot response does not match the synthesis envelope")
+        _ensure_polar_answer_prefix(question, envelope)
         preamble = envelope.pop("preamble")
         if not isinstance(preamble, str):
             raise TypeError("Chatbot preamble must be a string")
@@ -386,12 +390,12 @@ def _direct_existence_answer(
     if len(terms) < 2:
         return None
     query = " ".join(terms)
-    candidates = store.retrieve(
-        None, max(DEFAULT_TOP_K * 4, 20), method="keyword", query_text=query
-    )
+    candidates = store.retrieve(None, 100, method="keyword", query_text=query)
     negative = re.compile(r"\b(?:no|not|none|without|unknown|uncertain|may|might)\b")
     for artifact in candidates:
-        for raw_sentence in re.split(r"(?<=[.!?])\s+", artifact.original_text_chunk):
+        for raw_sentence in re.split(
+            r"(?<=[.!?])\s+|[\r\n]+", artifact.original_text_chunk
+        ):
             sentence = raw_sentence.strip()
             normalized = sentence.casefold()
             if not sentence or negative.search(normalized):
@@ -417,6 +421,30 @@ def _direct_existence_answer(
                 if answer != VALIDATION_FAILED_MESSAGE:
                     return answer, "", sources
     return None
+
+
+def _ensure_polar_answer_prefix(question: str, envelope: dict[str, object]) -> None:
+    """Normalize an otherwise clear grounded polar answer to explicit Yes/No."""
+
+    if not SIMPLE_EXISTENCE_PATTERN.search(question):
+        return
+    claims = envelope.get("claims")
+    if not isinstance(claims, list) or not claims or not isinstance(claims[0], dict):
+        return
+    text = claims[0].get("text")
+    if not isinstance(text, str) or re.match(r"^\s*(?:yes|no)\s*[.,:]", text, re.I):
+        return
+    normalized = text.casefold()
+    negative = re.search(r"\b(?:no|not|absent|does not|do not|did not)\b", normalized)
+    affirmative = re.search(
+        r"\b(?:is|are|was|were)\s+(?:present|found|documented|recorded|captured)\b"
+        r"|\b(?:exist|exists|occur|occurs|occurred)\b",
+        normalized,
+    )
+    if negative:
+        claims[0]["text"] = "No. " + text
+    elif affirmative:
+        claims[0]["text"] = "Yes. " + text
 
 
 def search_corpus(

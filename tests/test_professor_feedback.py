@@ -1,8 +1,8 @@
 """Regression tests for the latency and simple-answer issues found in review."""
 
 from data_models import KnowledgeArtifact
-from database import KnowledgeStore
-from main import _direct_existence_answer
+from database import KnowledgeStore, prepare_runtime_database
+from main import _direct_existence_answer, _ensure_polar_answer_prefix
 import wiki_compiler
 from wiki_compiler import (
     EXTRACTIVE_MODEL_NAME,
@@ -76,3 +76,37 @@ def test_failed_ai_refresh_keeps_pre_generated_page(tmp_path, monkeypatch) -> No
     assert refreshed["cached"] is True
     assert refreshed["refresh_error"] == "Request timed out"
     store.close()
+
+
+def test_runtime_database_copy_accepts_wiki_writes(tmp_path) -> None:
+    seed_store = _store(tmp_path)
+    seed_store.close()
+    runtime_path = prepare_runtime_database(
+        tmp_path / "test.db", tmp_path / "runtime"
+    )
+
+    runtime_store = KnowledgeStore(runtime_path)
+    page = generate_extractive_wiki_concept("Invasive carp", runtime_store)
+
+    assert runtime_path != tmp_path / "test.db"
+    assert page["knowledge_id"]
+    assert runtime_store.get_compiled_concept("Invasive carp") is not None
+    runtime_store.close()
+
+
+def test_generated_polar_answer_is_normalized_to_explicit_yes() -> None:
+    envelope = {
+        "status": "answered",
+        "claims": [{
+            "text": "Invasive carp are present in Missouri.",
+            "evidence_ids": ["K1"],
+            "supporting_spans": [MISSOURI_CARP_EVIDENCE],
+        }],
+        "unsupported_facets": [],
+    }
+
+    _ensure_polar_answer_prefix("Are there invasive carps in Missouri?", envelope)
+
+    assert envelope["claims"][0]["text"] == (
+        "Yes. Invasive carp are present in Missouri."
+    )

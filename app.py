@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import tempfile
 
 import streamlit as st
 
 from config import CHAT_MODEL_OPTIONS, SETTINGS
-from database import KnowledgeStore
+from database import KnowledgeStore, prepare_runtime_database
 from evaluation import run_evaluation
 from main import ask_chatbot_with_context, search_corpus
 from source_catalog import load_source_catalog
@@ -102,9 +104,14 @@ st.markdown(
 
 @st.cache_resource
 def get_store() -> KnowledgeStore:
-    """Load the persistent SQLite corpus and NumPy vector cache once."""
+    """Load a writable runtime copy of the bundled corpus once."""
 
-    store = KnowledgeStore()
+    runtime_root = Path(tempfile.gettempdir()) / "conservation-document-intelligence-v3"
+    database_path = prepare_runtime_database(
+        SETTINGS.storage.database_path,
+        runtime_root,
+    )
+    store = KnowledgeStore(database_path)
     store.upsert_document_sources(list(load_source_catalog().values()))
     return store
 

@@ -6,6 +6,7 @@ import math
 import hashlib
 import json
 import re
+import shutil
 import sqlite3
 import threading
 from collections.abc import Sequence
@@ -38,6 +39,24 @@ DOCUMENT_QUERY_STOPWORDS = {
     "mention", "mentions", "relevant", "most", "are", "is", "to",
     "the", "a", "an", "about", "find", "identify", "list",
 }
+
+
+def prepare_runtime_database(source_path: Path, runtime_root: Path) -> Path:
+    """Copy the bundled read-only corpus to a writable runtime location.
+
+    Streamlit Community Cloud mounts repository files read-only. The canonical
+    database remains the deployment seed, while Wiki refreshes and other runtime
+    writes use this per-process copy.
+    """
+
+    source = Path(source_path)
+    destination_root = Path(runtime_root)
+    if not source.is_file():
+        raise FileNotFoundError(f"Bundled corpus database does not exist: {source}")
+    destination_root.mkdir(parents=True, exist_ok=True)
+    destination = destination_root / source.name
+    shutil.copy2(source, destination)
+    return destination
 
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
