@@ -51,6 +51,17 @@ EXISTENCE_STOPWORDS = {
 }
 
 
+def _require_store_interface(store: object, *methods: str) -> None:
+    """Validate behavior, not class identity, across Streamlit hot reloads."""
+
+    missing = [name for name in methods if not callable(getattr(store, name, None))]
+    if missing:
+        raise TypeError(
+            "store does not provide the required KnowledgeStore interface: "
+            + ", ".join(missing)
+        )
+
+
 def _sha256_file(path: Path) -> str:
     """Hash a source in bounded blocks for versioned provenance."""
 
@@ -67,8 +78,15 @@ def ingest_corpus(pdf_directory: str, store: KnowledgeStore) -> int:
     directory = Path(pdf_directory)
     if not directory.is_dir():
         raise NotADirectoryError(f"PDF directory does not exist: {directory}")
-    if not isinstance(store, KnowledgeStore):
-        raise TypeError("store must be a KnowledgeStore")
+    _require_store_interface(
+        store,
+        "begin_rebuild",
+        "stage_batch",
+        "commit_rebuild",
+        "abort_rebuild",
+        "upsert_document_sources",
+        "record_ingestion_report",
+    )
 
     catalog = load_source_catalog()
     pending: list[KnowledgeArtifact] = []
@@ -259,8 +277,7 @@ def ask_chatbot_with_context(
 
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be a non-empty string")
-    if not isinstance(store, KnowledgeStore):
-        raise TypeError("store must be a KnowledgeStore")
+    _require_store_interface(store, "retrieve", "retrieve_document_matches")
 
     # Resolve narrow yes/no existence questions locally before paying for an
     # embedding or generation request. The helper returns only when one exact,
@@ -484,8 +501,7 @@ def search_corpus(
 
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty string")
-    if not isinstance(store, KnowledgeStore):
-        raise TypeError("store must be a KnowledgeStore")
+    _require_store_interface(store, "retrieve")
     query_embedding = generate_embedding(query)
     return store.retrieve(query_embedding, top_k)
 

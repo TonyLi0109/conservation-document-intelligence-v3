@@ -156,3 +156,66 @@ def test_curly_possessive_and_title_scope_for_climate_question(tmp_path) -> None
     )
     assert [source.document_id for source in result[2]] == ["DOC036"]
     store.close()
+
+
+def test_cached_store_proxy_survives_streamlit_hot_reload(tmp_path) -> None:
+    store = _store(tmp_path)
+
+    class CachedStoreProxy:
+        """Behaves like a store but deliberately fails concrete isinstance checks."""
+
+        def __getattr__(self, name):
+            return getattr(store, name)
+
+    from main import ask_chatbot_with_context
+
+    answer, preamble, sources = ask_chatbot_with_context(
+        "Are there invasive carps in Missouri?",
+        CachedStoreProxy(),
+    )
+
+    assert answer.startswith("- Yes.")
+    assert preamble == ""
+    assert [source.document_id for source in sources] == ["DOC036"]
+    store.close()
+
+
+def test_native_question_reaches_grounded_negative_synthesis(tmp_path, monkeypatch) -> None:
+    import json
+    import main
+
+    evidence = "Invasive carp are nonnative fish managed in Missouri waterways."
+    store = KnowledgeStore(tmp_path / "native.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC036",
+            title="2022 Missouri Comprehensive Conservation Strategy",
+            page_number="298",
+            original_text_chunk=evidence,
+        ),
+        [1.0, 0.0],
+    )
+    monkeypatch.setattr(main, "generate_embedding", lambda _question: [1.0, 0.0])
+    monkeypatch.setattr(
+        main,
+        "call_llm",
+        lambda *_args, **_kwargs: json.dumps({
+            "preamble": "",
+            "status": "answered",
+            "claims": [{
+                "text": "No. Invasive carp are not native to Missouri.",
+                "evidence_ids": ["K1"],
+                "supporting_spans": [evidence],
+            }],
+            "unsupported_facets": [],
+        }),
+    )
+
+    answer, preamble, sources = main.ask_chatbot_with_context(
+        "Are invasive carp native to Missouri?", store
+    )
+
+    assert answer.startswith("- No.")
+    assert preamble == ""
+    assert [source.document_id for source in sources] == ["DOC036"]
+    store.close()
