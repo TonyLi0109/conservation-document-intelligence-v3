@@ -333,6 +333,18 @@ def test_fy_comparison_stays_with_requested_annual_reports(tmp_path) -> None:
     store = KnowledgeStore(tmp_path / "comparison.db")
     store.ingest_chunk(
         KnowledgeArtifact(
+            document_id="DOC012",
+            title="Invasive Carp Strategic Science Plan",
+            page_number="11",
+            original_text_chunk=(
+                "In 2020 and 2021, we began large-scale evaluations of key deterrent "
+                "technologies, including acoustic and sound, lights, and bubble systems."
+            ),
+        ),
+        [1.0, 0.0],
+    )
+    store.ingest_chunk(
+        KnowledgeArtifact(
             document_id="DOC018",
             title="MDC Annual Review FY2021",
             page_number="Web",
@@ -362,10 +374,12 @@ def test_fy_comparison_stays_with_requested_annual_reports(tmp_path) -> None:
 
     assert result is not None
     answer, preamble, sources = result
-    assert "FY2024 reported" in answer
+    assert "FY2021-side evidence describes" in answer
+    assert "FY2024 MDC work is more operational" in answer
     assert "over 19 tons" in answer
-    assert "FY2021 annual review does not explicitly discuss" in preamble
-    assert [source.document_id for source in sources] == ["DOC016"]
+    assert "cross-agency comparison" in preamble
+    assert "FY2021 MDC annual review does not explicitly discuss" in preamble
+    assert [source.document_id for source in sources] == ["DOC012", "DOC016"]
     assert "DOC006" not in answer
     assert "Unsupported facets" not in answer
     store.close()
@@ -373,6 +387,18 @@ def test_fy_comparison_stays_with_requested_annual_reports(tmp_path) -> None:
 
 def test_fy_comparison_survives_store_cached_before_new_methods(tmp_path) -> None:
     store = KnowledgeStore(tmp_path / "old_comparison_store.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC012",
+            title="Invasive Carp Strategic Science Plan",
+            page_number="11",
+            original_text_chunk=(
+                "In 2020 and 2021, we began large-scale evaluations of deterrent "
+                "technologies, including acoustic and sound-light-bubble systems."
+            ),
+        ),
+        [1.0, 0.0],
+    )
     store.ingest_chunk(
         KnowledgeArtifact(
             document_id="DOC018",
@@ -408,7 +434,8 @@ def test_fy_comparison_survives_store_cached_before_new_methods(tmp_path) -> Non
     )
 
     assert result is not None
-    assert "FY2024 reported" in result[0]
-    assert "FY2021 annual review does not explicitly discuss" in result[1]
-    assert [source.document_id for source in result[2]] == ["DOC016"]
+    assert "FY2021-side evidence describes" in result[0]
+    assert "FY2024 MDC work is more operational" in result[0]
+    assert "cross-agency comparison" in result[1]
+    assert [source.document_id for source in result[2]] == ["DOC012", "DOC016"]
     store.close()

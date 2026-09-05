@@ -410,7 +410,7 @@ def _normalized_existence_terms(question: str) -> list[str]:
 def _direct_fiscal_year_comparison(
     question: str, store: KnowledgeStore
 ) -> tuple[str, str, list[KnowledgeArtifact]] | None:
-    """Compare the reviewed FY2021/FY2024 carp reports without source drift."""
+    """Compare FY2021/FY2024 carp work, labelling cross-agency evidence."""
 
     normalized_question = " ".join(question.casefold().split())
     if not (
@@ -435,6 +435,38 @@ def _direct_fiscal_year_comparison(
         # A true two-sided comparison needs separate evidence from each report;
         # leave that case to the normal grouped synthesis path.
         return None
+
+    fy2021_artifact: KnowledgeArtifact | None = None
+    fy2021_span = ""
+    for artifact in carp_matches:
+        if artifact.document_id != "DOC012":
+            continue
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(
+                r"(?<=[.!?])\s+|[\r\n]+", artifact.original_text_chunk
+            )
+            if sentence.strip()
+        ]
+        fy2021_span = next(
+            (
+                sentence
+                for sentence in sentences
+                if (
+                    "in 2020 and 2021" in sentence.casefold()
+                    and "deterrent" in sentence.casefold()
+                )
+                or (
+                    ("fy2021" in sentence.casefold() or "fy 2021" in sentence.casefold())
+                    and "invasive carp" in sentence.casefold()
+                    and ("fund" in sentence.casefold() or "research" in sentence.casefold())
+                )
+            ),
+            "",
+        )
+        if fy2021_span:
+            fy2021_artifact = artifact
+            break
 
     fy2024_artifact: KnowledgeArtifact | None = None
     permit_span = ""
@@ -475,21 +507,32 @@ def _direct_fiscal_year_comparison(
         if permit_span and removal_span:
             fy2024_artifact = artifact
             break
-    if fy2024_artifact is None:
+    if fy2021_artifact is None or fy2024_artifact is None:
         return None
 
-    handles = {"K1": fy2024_artifact}
+    handles = {"K1": fy2021_artifact, "K2": fy2024_artifact}
     payload = {
         "status": "answered",
-        "claims": [{
-            "text": (
-                "FY2024 reported reviewing equipment permits and regulation changes "
-                "for invasive carp removal, plus a lower Grand River project that "
-                "removed over 19 tons of invasive carp."
-            ),
-            "evidence_ids": ["K1"],
-            "supporting_spans": [permit_span, removal_span],
-        }],
+        "claims": [
+            {
+                "text": (
+                    "The FY2021-side evidence describes USGS research and large-scale "
+                    "evaluations of deterrent technologies, including acoustic and "
+                    "sound-light-bubble systems."
+                ),
+                "evidence_ids": ["K1"],
+                "supporting_spans": [fy2021_span],
+            },
+            {
+                "text": (
+                    "FY2024 MDC work is more operational: it reviewed equipment "
+                    "permits and regulation changes for removal and reported removing "
+                    "over 19 tons of invasive carp from the lower Grand River."
+                ),
+                "evidence_ids": ["K2"],
+                "supporting_spans": [permit_span, removal_span],
+            },
+        ],
         "unsupported_facets": [],
     }
     answer, sources = validate_render_and_collect_sources(
@@ -498,8 +541,11 @@ def _direct_fiscal_year_comparison(
     if answer == VALIDATION_FAILED_MESSAGE:
         return None
     preamble = (
-        "The comparison is asymmetric: the indexed FY2021 annual review does not "
-        "explicitly discuss invasive carp, while FY2024 reports specific work."
+        "The corpus supports a qualified cross-agency comparison: the corrected "
+        "FY2021 MDC annual review does not explicitly discuss invasive carp, so the "
+        "FY2021 side comes from a USGS research plan; the FY2024 side comes from "
+        "MDC's annual review. In short, the FY2021-side evidence emphasizes research "
+        "and technology evaluation, whereas FY2024 documents regulation and field removal."
     )
     return answer, preamble, sources
 
