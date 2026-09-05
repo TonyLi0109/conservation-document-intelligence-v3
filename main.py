@@ -45,8 +45,9 @@ SIMPLE_EXISTENCE_PATTERN = re.compile(
     r"^\s*(?:are|is|do|does|did|has|have|was|were)\b", re.IGNORECASE
 )
 EXISTENCE_STOPWORDS = {
-    "a", "an", "any", "are", "did", "do", "does", "has", "have", "in",
-    "is", "of", "the", "there", "was", "were",
+    "a", "an", "any", "are", "addressed", "did", "discussed", "do", "does",
+    "documented", "found", "has", "have", "in", "is", "mentioned", "of",
+    "present", "the", "there", "was", "were",
 }
 
 
@@ -370,13 +371,41 @@ def _normalized_existence_terms(question: str) -> list[str]:
     """Extract conservative content terms from a simple existence question."""
 
     terms: list[str] = []
-    for raw in re.findall(r"[A-Za-z][A-Za-z'-]*", question.casefold()):
-        if raw in EXISTENCE_STOPWORDS:
+    normalized_question = question.casefold().replace("’", "'")
+    for raw in re.findall(r"[A-Za-z][A-Za-z'-]*", normalized_question):
+        raw = raw[:-2] if raw.endswith("'s") else raw
+        if len(raw) < 2 or raw in EXISTENCE_STOPWORDS:
             continue
         term = raw[:-1] if raw.endswith("s") and len(raw) > 4 else raw
         if term not in terms:
             terms.append(term)
     return terms
+
+
+def _polar_yes_claim(question: str) -> str | None:
+    """Render a natural explicit-Yes claim for supported question templates."""
+
+    cleaned = " ".join(question.strip().rstrip("?.!").split())
+    there_match = re.fullmatch(
+        r"are\s+there\s+(.+?)\s+in\s+(.+)", cleaned, re.IGNORECASE
+    )
+    if there_match:
+        subject, scope = there_match.groups()
+        return f"Yes. There are {subject} in {scope}."
+
+    predicate_match = re.fullmatch(
+        r"(are|is|was|were)\s+(.+?)\s+"
+        r"(found|present|documented|discussed|mentioned|addressed)\s+in\s+(.+)",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if predicate_match:
+        auxiliary, subject, predicate, scope = predicate_match.groups()
+        return (
+            f"Yes. {subject[0].upper() + subject[1:]} "
+            f"{auxiliary.casefold()} {predicate.casefold()} in {scope}."
+        )
+    return None
 
 
 def _direct_existence_answer(
@@ -387,7 +416,8 @@ def _direct_existence_answer(
     if not SIMPLE_EXISTENCE_PATTERN.search(question):
         return None
     terms = _normalized_existence_terms(question)
-    if len(terms) < 2:
+    claim_text = _polar_yes_claim(question)
+    if len(terms) < 2 or claim_text is None:
         return None
     query = " ".join(terms)
     candidates = store.retrieve(None, 100, method="keyword", query_text=query)
@@ -397,19 +427,16 @@ def _direct_existence_answer(
             r"(?<=[.!?])\s+|[\r\n]+", artifact.original_text_chunk
         ):
             sentence = raw_sentence.strip()
-            normalized = sentence.casefold()
+            normalized = sentence.casefold().replace("’", "'")
             if not sentence or negative.search(normalized):
                 continue
-            if all(term in normalized for term in terms):
+            trusted_context = f"{artifact.title.casefold()} {normalized}"
+            if all(term in trusted_context for term in terms):
                 handles = {"K1": artifact}
                 payload = {
                     "status": "answered",
                     "claims": [{
-                        "text": (
-                            "Yes. The corpus explicitly documents "
-                            + " ".join(terms[:-1])
-                            + f" in {terms[-1].title()}."
-                        ),
+                        "text": claim_text,
                         "evidence_ids": ["K1"],
                         "supporting_spans": [sentence],
                     }],

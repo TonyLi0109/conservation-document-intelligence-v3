@@ -15,6 +15,8 @@ MISSOURI_CARP_EVIDENCE = (
     "Some of the most well-known aquatic invasive species in Missouri include "
     "invasive carp such as bighead, silver, and black carp."
 )
+ZEBRA_EVIDENCE = "Zebra mussels can disrupt aquatic food webs and native mussels."
+CLIMATE_EVIDENCE = "Climate change is expected to affect habitats across the state."
 
 
 def _store(tmp_path) -> KnowledgeStore:
@@ -110,3 +112,47 @@ def test_generated_polar_answer_is_normalized_to_explicit_yes() -> None:
     assert envelope["claims"][0]["text"] == (
         "Yes. Invasive carp are present in Missouri."
     )
+
+
+def test_title_supplies_missouri_scope_for_zebra_mussel_answer(tmp_path) -> None:
+    store = KnowledgeStore(tmp_path / "zebra.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC036",
+            title="2022 Missouri Comprehensive Conservation Strategy",
+            page_number="298",
+            original_text_chunk=ZEBRA_EVIDENCE,
+        ),
+        [1.0, 0.0],
+    )
+
+    result = _direct_existence_answer("Are zebra mussels found in Missouri?", store)
+
+    assert result is not None
+    assert result[0].startswith("- Yes. Zebra mussels are found in Missouri.")
+    assert [source.document_id for source in result[2]] == ["DOC036"]
+    store.close()
+
+
+def test_curly_possessive_and_title_scope_for_climate_question(tmp_path) -> None:
+    store = KnowledgeStore(tmp_path / "climate.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC036",
+            title="2022 Missouri Comprehensive Conservation Strategy",
+            page_number="132",
+            original_text_chunk=CLIMATE_EVIDENCE,
+        ),
+        [1.0, 0.0],
+    )
+
+    result = _direct_existence_answer(
+        "Is climate change discussed in Missouri’s conservation strategy?", store
+    )
+
+    assert result is not None
+    assert result[0].startswith(
+        "- Yes. Climate change is discussed in Missouri’s conservation strategy."
+    )
+    assert [source.document_id for source in result[2]] == ["DOC036"]
+    store.close()
