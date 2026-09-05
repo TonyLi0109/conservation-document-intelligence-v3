@@ -420,10 +420,17 @@ def _direct_fiscal_year_comparison(
         and "fy2024" in normalized_question
     ):
         return None
-    contains_phrase = getattr(store, "document_contains_phrase", None)
-    if not callable(contains_phrase):
-        return None
-    fy2021_has_carp = bool(contains_phrase("DOC018", "carp"))
+    # Use only the long-standing retrieve interface so this route also works
+    # with a Store instance cached before a Streamlit hot reload. A very high
+    # top_k makes this an exhaustive phrase scan for this small fixed corpus.
+    carp_matches = store.retrieve(
+        None, 100_000, method="keyword", query_text="carp"
+    )
+    fy2021_has_carp = any(
+        artifact.document_id == "DOC018"
+        and "carp" in artifact.original_text_chunk.casefold()
+        for artifact in carp_matches
+    )
     if fy2021_has_carp:
         # A true two-sided comparison needs separate evidence from each report;
         # leave that case to the normal grouped synthesis path.

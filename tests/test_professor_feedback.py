@@ -369,3 +369,46 @@ def test_fy_comparison_stays_with_requested_annual_reports(tmp_path) -> None:
     assert "DOC006" not in answer
     assert "Unsupported facets" not in answer
     store.close()
+
+
+def test_fy_comparison_survives_store_cached_before_new_methods(tmp_path) -> None:
+    store = KnowledgeStore(tmp_path / "old_comparison_store.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC018",
+            title="MDC Annual Review FY2021",
+            page_number="Web",
+            original_text_chunk="The annual review describes habitat partnerships.",
+        ),
+        [1.0, 0.0],
+    )
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC016",
+            title="MDC Annual Review FY2024",
+            page_number="Web",
+            original_text_chunk=(
+                "In FY24, the working group provided reviews for novel equipment "
+                "permits for invasive carp removal, and regulation changes related "
+                "to invasive species. Work on the lower Grand River resulted in "
+                "over 19 tons of invasive carp being removed from the lower Grand River."
+            ),
+        ),
+        [1.0, 0.0],
+    )
+
+    class OldCachedStore:
+        # Deliberately exposes no newly added document_contains_phrase method.
+        def retrieve(self, *args, **kwargs):
+            return store.retrieve(*args, **kwargs)
+
+    result = _direct_fiscal_year_comparison(
+        "Compare the invasive carp work described in FY2021 and FY2024.",
+        OldCachedStore(),
+    )
+
+    assert result is not None
+    assert "FY2024 reported" in result[0]
+    assert "FY2021 annual review does not explicitly discuss" in result[1]
+    assert [source.document_id for source in result[2]] == ["DOC016"]
+    store.close()
