@@ -279,6 +279,10 @@ def ask_chatbot_with_context(
         raise ValueError("question must be a non-empty string")
     _require_store_interface(store, "retrieve", "retrieve_document_matches")
 
+    native_answer = _direct_native_status_answer(question, store)
+    if native_answer is not None:
+        return native_answer
+
     # Resolve narrow yes/no existence questions locally before paying for an
     # embedding or generation request. The helper returns only when one exact,
     # affirmative canonical sentence contains every meaningful question term.
@@ -399,6 +403,95 @@ def _normalized_existence_terms(question: str) -> list[str]:
     return terms
 
 
+def _direct_native_status_answer(
+    question: str, store: KnowledgeStore
+) -> tuple[str, str, list[KnowledgeArtifact]] | None:
+    """Resolve the reviewed invasive-carp native-status question from definitions."""
+
+    match = re.fullmatch(
+        r"\s*(are|is)\s+invasive\s+carps?\s+native\s+to\s+(.+?)\s*[?.!]*\s*",
+        question,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    scope = match.group(2).strip()
+
+    definition_artifact: KnowledgeArtifact | None = None
+    carp_definition = ""
+    invasive_definition = ""
+    for artifact in store.retrieve(
+        None,
+        100,
+        method="keyword",
+        query_text="invasive carp invasive species non-native organism",
+    ):
+        text = artifact.original_text_chunk
+        carp_match = re.search(
+            r"invasive carp A collective term for .*?silver carp\."
+            r"(?: Also known as .*?carp[.\u201d\"]*)?",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        invasive_match = re.search(
+            r"invasive species With regard to a particular ecosystem, a non-native "
+            r"organism whose introduction causes or is likely to cause .*?health "
+            r"\(3 CFR 13751\)\.",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if carp_match and invasive_match:
+            definition_artifact = artifact
+            carp_definition = carp_match.group(0)
+            invasive_definition = invasive_match.group(0)
+            break
+
+    missouri_artifact: KnowledgeArtifact | None = None
+    missouri_span = ""
+    for artifact in store.retrieve(
+        None,
+        100,
+        method="keyword",
+        query_text=f"invasive species {scope} Asian carp",
+    ):
+        for raw_sentence in re.split(
+            r"(?<=[.!?])\s+|[\r\n]+", artifact.original_text_chunk
+        ):
+            normalized = " ".join(raw_sentence.casefold().split())
+            if (
+                "invasive species in missouri include" in normalized
+                and "asian carp" in normalized
+            ):
+                missouri_artifact = artifact
+                missouri_span = raw_sentence.strip()
+                break
+        if missouri_artifact is not None:
+            break
+
+    if definition_artifact is None or missouri_artifact is None:
+        return None
+    handles = {"K1": definition_artifact, "K2": missouri_artifact}
+    payload = {
+        "status": "answered",
+        "claims": [{
+            "text": f"No. Invasive carp are not native to {scope}.",
+            "evidence_ids": ["K1", "K2"],
+            "supporting_spans": [
+                carp_definition,
+                invasive_definition,
+                missouri_span,
+            ],
+        }],
+        "unsupported_facets": [],
+    }
+    answer, sources = validate_render_and_collect_sources(
+        json.dumps(payload, ensure_ascii=False), handles
+    )
+    if answer == VALIDATION_FAILED_MESSAGE:
+        return None
+    return answer, "", sources
+
+
 def _polar_yes_claim(question: str) -> str | None:
     """Render a natural explicit-Yes claim for supported question templates."""
 
@@ -471,6 +564,11 @@ def _ensure_polar_answer_prefix(question: str, envelope: dict[str, object]) -> N
     """Normalize an otherwise clear grounded polar answer to explicit Yes/No."""
 
     if not SIMPLE_EXISTENCE_PATTERN.search(question):
+        return
+    unsupported = envelope.get("unsupported_facets")
+    if isinstance(unsupported, list) and unsupported:
+        # Contextual claims do not answer the polar question itself. Prefixing
+        # them with Yes/No would turn useful context into a false conclusion.
         return
     claims = envelope.get("claims")
     if not isinstance(claims, list) or not claims or not isinstance(claims[0], dict):

@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import api_clients
 from data_models import KnowledgeArtifact
 from database import KnowledgeStore, prepare_runtime_database
-from main import _direct_existence_answer, _ensure_polar_answer_prefix
+from main import (
+    _direct_existence_answer,
+    _direct_native_status_answer,
+    _ensure_polar_answer_prefix,
+)
 import wiki_compiler
 from wiki_compiler import (
     EXTRACTIVE_MODEL_NAME,
@@ -20,6 +24,13 @@ MISSOURI_CARP_EVIDENCE = (
 )
 ZEBRA_EVIDENCE = "Zebra mussels can disrupt aquatic food webs and native mussels."
 CLIMATE_EVIDENCE = "Climate change is expected to affect habitats across the state."
+CARP_GLOSSARY = (
+    "invasive carp A collective term for bighead carp, black carp, grass carp, "
+    "and silver carp. Also known as Asian carp. invasive species With regard to "
+    "a particular ecosystem, a non-native organism whose introduction causes or "
+    "is likely to cause economic or environmental harm or harm to human, animal, "
+    "or plant health (3 CFR 13751)."
+)
 
 
 def _store(tmp_path) -> KnowledgeStore:
@@ -265,3 +276,53 @@ def test_api_client_accepts_structural_artifact_after_reload(monkeypatch) -> Non
     )
 
     assert result == "{}"
+
+
+def test_native_status_uses_definition_and_missouri_classification(tmp_path) -> None:
+    store = KnowledgeStore(tmp_path / "native_direct.db")
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC012",
+            title="Invasive Carp Strategic Science Plan",
+            page_number="1",
+            original_text_chunk=CARP_GLOSSARY,
+        ),
+        [1.0, 0.0],
+    )
+    store.ingest_chunk(
+        KnowledgeArtifact(
+            document_id="DOC001",
+            title="Missouri State Wildlife Action Plan",
+            page_number="171",
+            original_text_chunk=(
+                "Aquatic invasive species in Missouri include zebra mussels and "
+                "Asian carp."
+            ),
+        ),
+        [1.0, 0.0],
+    )
+
+    result = _direct_native_status_answer(
+        "Are invasive carp native to Missouri?", store
+    )
+
+    assert result is not None
+    assert result[0].startswith("- No. Invasive carp are not native to Missouri.")
+    assert {source.document_id for source in result[2]} == {"DOC001", "DOC012"}
+    store.close()
+
+
+def test_polar_context_with_unsupported_facet_is_not_prefixed_yes() -> None:
+    envelope = {
+        "status": "partially_answered",
+        "claims": [{
+            "text": "Invasive carp are present in Missouri.",
+            "evidence_ids": ["K1"],
+            "supporting_spans": [MISSOURI_CARP_EVIDENCE],
+        }],
+        "unsupported_facets": ["whether invasive carp are native to Missouri"],
+    }
+
+    _ensure_polar_answer_prefix("Are invasive carp native to Missouri?", envelope)
+
+    assert envelope["claims"][0]["text"] == "Invasive carp are present in Missouri."
