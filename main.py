@@ -41,6 +41,13 @@ DOCUMENT_DISCOVERY_PATTERN = re.compile(
     r"\b(which|what|list|identify|find)\b.*\b(document|documents|sources|reports|plans)\b",
     re.IGNORECASE,
 )
+SIMPLE_EXISTENCE_PATTERN = re.compile(
+    r"^\s*(?:are|is|do|does|did|has|have)\b", re.IGNORECASE
+)
+EXISTENCE_STOPWORDS = {
+    "a", "an", "any", "are", "did", "do", "does", "has", "have", "in",
+    "is", "of", "the", "there", "was", "were",
+}
 
 
 def _sha256_file(path: Path) -> str:
@@ -307,6 +314,10 @@ def ask_chatbot_with_context(
             artifact_handles,
         )
         return answer, "No relevant evidence was retrieved from the corpus.", sources
+    direct_answer = _direct_existence_answer(question, store)
+    if direct_answer is not None:
+        return direct_answer
+
     user_prompt = build_synthesis_prompt(question, artifact_handles)
     max_claims, max_output_tokens, _ = answer_length_constraints(question)
     try:
@@ -351,6 +362,63 @@ def ask_chatbot_with_context(
         )
 
 
+def _normalized_existence_terms(question: str) -> list[str]:
+    """Extract conservative content terms from a simple existence question."""
+
+    terms: list[str] = []
+    for raw in re.findall(r"[A-Za-z][A-Za-z'-]*", question.casefold()):
+        if raw in EXISTENCE_STOPWORDS:
+            continue
+        term = raw[:-1] if raw.endswith("s") and len(raw) > 4 else raw
+        if term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _direct_existence_answer(
+    question: str, store: KnowledgeStore
+) -> tuple[str, str, list[KnowledgeArtifact]] | None:
+    """Answer only when one affirmative canonical sentence covers every term."""
+
+    if not SIMPLE_EXISTENCE_PATTERN.search(question):
+        return None
+    terms = _normalized_existence_terms(question)
+    if len(terms) < 2:
+        return None
+    query = " ".join(terms)
+    candidates = store.retrieve(
+        None, max(DEFAULT_TOP_K * 4, 20), method="keyword", query_text=query
+    )
+    negative = re.compile(r"\b(?:no|not|none|without|unknown|uncertain|may|might)\b")
+    for artifact in candidates:
+        for raw_sentence in re.split(r"(?<=[.!?])\s+", artifact.original_text_chunk):
+            sentence = raw_sentence.strip()
+            normalized = sentence.casefold()
+            if not sentence or negative.search(normalized):
+                continue
+            if all(term in normalized for term in terms):
+                handles = {"K1": artifact}
+                payload = {
+                    "status": "answered",
+                    "claims": [{
+                        "text": (
+                            "Yes. The corpus explicitly documents "
+                            + " ".join(terms[:-1])
+                            + f" in {terms[-1].title()}."
+                        ),
+                        "evidence_ids": ["K1"],
+                        "supporting_spans": [sentence],
+                    }],
+                    "unsupported_facets": [],
+                }
+                answer, sources = validate_render_and_collect_sources(
+                    json.dumps(payload), handles
+                )
+                if answer != VALIDATION_FAILED_MESSAGE:
+                    return answer, "", sources
+    return None
+
+
 def search_corpus(
     query: str,
     store: KnowledgeStore,
@@ -377,6 +445,10 @@ def _parse_args() -> argparse.Namespace:
     mode.add_argument(
         "--backfill-page-labels", metavar="SOURCE_DIRECTORY",
         help="Add PDF logical page labels to the existing index without embedding",
+    )
+    mode.add_argument(
+        "--precompile-wiki", action="store_true",
+        help="Create fast deterministic Wiki pages for every curated entity",
     )
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     parser.add_argument("--debug", action="store_true", help="Enable provenance validation diagnostics")
@@ -409,6 +481,12 @@ def _run_cli() -> None:
         if args.backfill_page_labels:
             updated = backfill_printed_page_labels(args.backfill_page_labels, store)
             print(f"Updated logical page labels on {updated} canonical artifact(s).")
+            return
+        if args.precompile_wiki:
+            from wiki_compiler import precompile_all_wiki_concepts
+
+            generated = precompile_all_wiki_concepts(store)
+            print(f"Pre-generated {generated} Wiki page(s).")
             return
         if store.artifact_count == 0:
             raise RuntimeError("The persistent corpus is empty. Run --ingest first.")

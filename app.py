@@ -12,7 +12,7 @@ from evaluation import run_evaluation
 from main import ask_chatbot_with_context, search_corpus
 from source_catalog import load_source_catalog
 from validator import format_artifact_location
-from wiki_compiler import generate_wiki_concept
+from wiki_compiler import generate_extractive_wiki_concept, generate_wiki_concept
 
 
 APP_TITLE = "Conservation Document Intelligence"
@@ -380,42 +380,42 @@ def render_wiki_tab(store: KnowledgeStore, selected_model: str) -> None:
         entity_catalog[entity_type],
         key="wiki_entity",
     )
-    action_columns = st.columns(2)
-    submitted = action_columns[0].button("Generate Concept Wiki", type="primary")
-    regenerate = action_columns[1].button("Regenerate from evidence")
+    # Entity selection displays persisted content immediately. If a deployment
+    # lacks a page, a local extractive version is created without an API call.
+    if st.session_state.get("v3_wiki_entity") != selected_entity:
+        try:
+            st.session_state.v3_wiki_result = generate_extractive_wiki_concept(
+                selected_entity, store
+            )
+            st.session_state.v3_wiki_entity = selected_entity
+        except Exception as error:
+            st.session_state.pop("v3_wiki_result", None)
+            st.error(f"The pre-generated concept is unavailable: {error}")
 
-    if submitted or regenerate:
+    regenerate = st.button("Regenerate from evidence", type="secondary")
+    if regenerate:
         with st.spinner("Retrieving and validating concept evidence..."):
             try:
                 st.session_state.v3_wiki_result = generate_wiki_concept(
                     selected_entity,
                     store,
-                    force_refresh=regenerate,
+                    force_refresh=True,
                     model=selected_model,
                 )
                 st.session_state.v3_wiki_entity = selected_entity
             except Exception as e:
-                st.session_state.pop("v3_wiki_result", None)
-                st.session_state.pop("v3_wiki_entity", None)
                 print(f"\n[DEBUG] Wiki compilation failed: {repr(e)}\n")
-                st.error(
-                    "The concept could not be compiled into valid grounded JSON. "
-                    f"Error details: {e}"
-                )
+                st.warning(f"Refresh failed; the pre-generated page is retained. {e}")
 
     result = st.session_state.get("v3_wiki_result")
-    if result is not None and st.session_state.get("v3_wiki_entity") != selected_entity:
-        st.info("Select Generate Concept Wiki to compile the newly selected entity.")
-        return
-    if isinstance(result, dict) and result.get("model_name") != selected_model:
-        st.info(
-            "The generation model changed. Select Generate Concept Wiki to compile "
-            "this entity with the newly selected model."
-        )
-        return
     if not isinstance(result, dict):
-        st.info("Knowledge Compilation artifacts will be generated and displayed here.")
+        st.info("No pre-generated Wiki page is available for this entity.")
         return
+    if result.get("refresh_error"):
+        st.warning(
+            "The AI refresh timed out or failed, so the existing pre-generated "
+            "page is still shown. You can retry later."
+        )
     concept = result.get("concept")
     artifacts = result.get("artifacts")
     if not isinstance(concept, dict) or not isinstance(artifacts, dict):

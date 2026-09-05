@@ -786,6 +786,7 @@ class KnowledgeStore:
         *,
         model_name: str,
         generation_version: str,
+        generation_method: str = "retrieval_grounded_llm",
     ) -> str:
         """Persist a validated derived knowledge item and its exact evidence links."""
 
@@ -823,14 +824,15 @@ class KnowledgeStore:
                     """INSERT INTO compiled_knowledge
                        (knowledge_id, concept_key, concept_title, summary,
                         generation_method, generation_version, model_name, generated_at)
-                       VALUES (?, ?, ?, ?, 'retrieval_grounded_llm', ?, ?, CURRENT_TIMESTAMP)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                        ON CONFLICT(concept_key) DO UPDATE SET
                          concept_title=excluded.concept_title, summary=excluded.summary,
                          generation_method=excluded.generation_method,
                          generation_version=excluded.generation_version,
                          model_name=excluded.model_name, generated_at=CURRENT_TIMESTAMP""",
                     (knowledge_id, concept_key, str(concept["concept_title"]),
-                     str(concept["summary"]), generation_version, model_name),
+                     str(concept["summary"]), generation_method,
+                     generation_version, model_name),
                 )
                 for table in (
                     "compiled_facts", "compiled_relationship_evidence",

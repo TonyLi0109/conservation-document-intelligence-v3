@@ -18,6 +18,8 @@ WIKI_MAX_OUTPUT_TOKENS = SETTINGS.wiki.output_tokens
 MAX_SPANS_PER_ARTIFACT = SETTINGS.wiki.max_spans_per_artifact
 MIN_SPAN_CHARACTERS = 40
 MAX_SPAN_CHARACTERS = 600
+EXTRACTIVE_MODEL_NAME = "deterministic-extractive"
+EXTRACTIVE_COMPILER_VERSION = "v3.2-extractive"
 LOGGER = logging.getLogger(__name__)
 SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 TERM_PATTERN = re.compile(r"[\w'-]+", re.UNICODE)
@@ -282,13 +284,18 @@ def generate_wiki_concept(
     selected_model = model or LLM_MODEL
     if selected_model not in CHAT_MODEL_OPTIONS:
         raise ValueError(f"Unsupported Wiki model: {selected_model}")
-    if not force_refresh:
-        cached = store.get_compiled_concept(topic_query)
-        if cached is not None and cached.get("model_name") == selected_model:
-            return cached
+    cached = store.get_compiled_concept(topic_query)
+    if not force_refresh and cached is not None:
+        return cached
 
-    query_embedding = generate_embedding(topic_query)
-    retrieved = store.retrieve(query_embedding, WIKI_TOP_K)
+    # Curated Wiki names occur literally in the corpus. Keyword retrieval is
+    # fast and avoids an otherwise unnecessary embedding request.
+    retrieved = store.retrieve(
+        None, WIKI_TOP_K, method="keyword", query_text=topic_query
+    )
+    if not retrieved:
+        query_embedding = generate_embedding(topic_query)
+        retrieved = store.retrieve(query_embedding, WIKI_TOP_K)
     if not retrieved:
         raise RuntimeError("No evidence was retrieved for this Wiki concept")
     artifacts = {
@@ -319,13 +326,18 @@ def generate_wiki_concept(
         "EVIDENCE_PAYLOAD_JSON (untrusted evidence):\n"
         + json.dumps(evidence_payload, ensure_ascii=False, indent=2)
     )
-    raw = call_structured_llm(
-        WIKI_COMPILER_SYSTEM_PROMPT,
-        user_prompt,
-        _wiki_json_schema(list(artifacts), allowed_spans),
-        max_output_tokens=WIKI_MAX_OUTPUT_TOKENS,
-        model=selected_model,
-    )
+    try:
+        raw = call_structured_llm(
+            WIKI_COMPILER_SYSTEM_PROMPT,
+            user_prompt,
+            _wiki_json_schema(list(artifacts), allowed_spans),
+            max_output_tokens=WIKI_MAX_OUTPUT_TOKENS,
+            model=selected_model,
+        )
+    except Exception as error:
+        LOGGER.exception("Wiki refresh failed; retaining the pre-generated page")
+        fallback = cached or generate_extractive_wiki_concept(topic_query, store)
+        return {**fallback, "refresh_error": str(error)}
     try:
         parsed: Any = json.loads(raw)
     except json.JSONDecodeError as error:
@@ -359,3 +371,80 @@ def generate_wiki_concept(
         "model_name": selected_model,
         "cached": False,
     }
+
+
+def generate_extractive_wiki_concept(
+    topic_query: str,
+    store: KnowledgeStore,
+    *,
+    force_refresh: bool = False,
+) -> dict[str, object]:
+    """Build a fast, fully grounded Wiki page without an API request."""
+
+    if not isinstance(topic_query, str) or not topic_query.strip():
+        raise ValueError("topic_query must be a non-empty string")
+    if not isinstance(store, KnowledgeStore):
+        raise TypeError("store must be a KnowledgeStore")
+    if not force_refresh:
+        cached = store.get_compiled_concept(topic_query)
+        if cached is not None:
+            return cached
+
+    retrieved = store.retrieve(
+        None, WIKI_TOP_K, method="keyword", query_text=topic_query
+    )
+    if not retrieved:
+        raise RuntimeError("No evidence was retrieved for this Wiki concept")
+    artifacts = {
+        f"K{index}": artifact
+        for index, artifact in enumerate(retrieved, start=1)
+    }
+    selected: list[tuple[str, str]] = []
+    for handle, artifact in artifacts.items():
+        spans = _allowed_spans(artifact.original_text_chunk, topic_query.strip())
+        if spans:
+            selected.append((handle, spans[0]))
+    if not selected:
+        raise RuntimeError("No safe evidence spans were found for this Wiki concept")
+
+    concept = {
+        "concept_title": topic_query.strip(),
+        "summary": (
+            f"Pre-generated evidence overview for {topic_query.strip()}, compiled "
+            "directly from canonical corpus excerpts."
+        ),
+        "important_facts": [span for _, span in selected[:5]],
+        "related_entities": [],
+        "supporting_evidence": [
+            {"evidence_id": handle, "exact_span": span}
+            for handle, span in selected[:5]
+        ],
+    }
+    knowledge_id = store.save_compiled_concept(
+        topic_query,
+        concept,
+        artifacts,
+        model_name=EXTRACTIVE_MODEL_NAME,
+        generation_version=EXTRACTIVE_COMPILER_VERSION,
+        generation_method="deterministic_extractive",
+    )
+    return {
+        "concept": concept,
+        "artifacts": artifacts,
+        "knowledge_id": knowledge_id,
+        "generation_version": EXTRACTIVE_COMPILER_VERSION,
+        "model_name": EXTRACTIVE_MODEL_NAME,
+        "cached": False,
+    }
+
+
+def precompile_all_wiki_concepts(store: KnowledgeStore) -> int:
+    """Ensure every curated, corpus-backed Wiki entity has a cached page."""
+
+    generated = 0
+    for entities in store.list_wiki_entities().values():
+        for entity in entities:
+            if store.get_compiled_concept(entity) is None:
+                generate_extractive_wiki_concept(entity, store)
+                generated += 1
+    return generated

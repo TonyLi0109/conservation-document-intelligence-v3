@@ -101,9 +101,16 @@ Never commit `.env.local` or `.streamlit/secrets.toml`. The hosted filesystem is
 ephemeral; evaluation exports and regenerated wiki cache entries may be reset
 when the app restarts, while the committed canonical corpus remains available.
 
-The UI contains Corpus, Search, Wiki, Chatbot, and Evaluation tabs. Wiki uses
-cached compiled knowledge by default. “Regenerate from evidence” explicitly
-requests a new compilation.
+The UI contains Corpus, Search, Wiki, Chatbot, and Evaluation tabs. Wiki pages
+are pre-generated from exact canonical excerpts and appear immediately when an
+entity is selected. “Regenerate from evidence” explicitly requests a richer AI
+compilation; if that request times out, the existing page remains available.
+
+To rebuild any missing pre-generated Wiki pages without an API call:
+
+```powershell
+python main.py --precompile-wiki
+```
 
 ## Configuration
 
