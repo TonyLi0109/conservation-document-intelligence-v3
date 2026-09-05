@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 
-from data_models import KnowledgeArtifact
+from data_models import KnowledgeArtifact, is_knowledge_artifact
 
 
 SYSTEM_PROMPT = """You are the strict evidence-synthesis engine for Conservation Document Intelligence V3.
@@ -111,7 +111,7 @@ def build_synthesis_prompt(
         for evidence_id, artifact in retrieved_artifacts.items():
             if not isinstance(evidence_id, str) or not evidence_id:
                 raise ValueError("artifact handles must be non-empty strings")
-            if not isinstance(artifact, KnowledgeArtifact):
+            if not is_knowledge_artifact(artifact):
                 raise TypeError("retrieved_artifacts values must be KnowledgeArtifact objects")
             evidence_payload.append(
                 {

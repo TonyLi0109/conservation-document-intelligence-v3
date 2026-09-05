@@ -7,7 +7,13 @@ import logging
 import re
 from typing import Any
 
-from data_models import Claim, KnowledgeArtifact, SynthesisResponse, SynthesisStatus
+from data_models import (
+    Claim,
+    KnowledgeArtifact,
+    SynthesisResponse,
+    SynthesisStatus,
+    is_knowledge_artifact,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -71,7 +77,7 @@ def _validated_claim(
     referenced: list[KnowledgeArtifact] = []
     for evidence_id in claim.evidence_ids:
         artifact = artifacts.get(evidence_id)
-        if not isinstance(artifact, KnowledgeArtifact):
+        if not is_knowledge_artifact(artifact):
             LOGGER.debug(
                 "Rejected claim %r: unknown evidence handle %r",
                 claim.text,
@@ -213,7 +219,7 @@ def validate_render_and_collect_sources(
     """
 
     if not isinstance(retrieved_artifacts, dict) or any(
-        not isinstance(key, str) or not isinstance(value, KnowledgeArtifact)
+        not isinstance(key, str) or not is_knowledge_artifact(value)
         for key, value in retrieved_artifacts.items()
     ):
         raise TypeError(

@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from config import CHAT_MODEL_OPTIONS, SETTINGS
-from data_models import KnowledgeArtifact
+from data_models import KnowledgeArtifact, is_knowledge_artifact
 
 
 LLM_MODEL = SETTINGS.models.llm_model
@@ -178,7 +178,7 @@ def call_llm(
         raise ValueError("user_prompt must be a non-empty string")
     if not isinstance(artifacts, dict) or any(
         not isinstance(handle, str)
-        or not isinstance(artifact, KnowledgeArtifact)
+        or not is_knowledge_artifact(artifact)
         for handle, artifact in artifacts.items()
     ):
         raise TypeError("artifacts must be a dict[str, KnowledgeArtifact]")

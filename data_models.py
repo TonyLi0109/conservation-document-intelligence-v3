@@ -71,6 +71,33 @@ class KnowledgeArtifact:
             )
 
 
+def is_knowledge_artifact(value: object) -> bool:
+    """Return whether ``value`` satisfies the canonical artifact contract.
+
+    This deliberately uses structural validation instead of class identity.
+    Streamlit can retain cached objects across a module hot reload, making a
+    valid instance of the previous ``KnowledgeArtifact`` class fail
+    ``isinstance`` against the newly imported class.
+    """
+
+    required = ("document_id", "title", "page_number", "original_text_chunk")
+    for name in required:
+        field_value = getattr(value, name, None)
+        if not isinstance(field_value, str) or not field_value.strip():
+            return False
+    source_url = getattr(value, "source_url", None)
+    if source_url is not None and (
+        not isinstance(source_url, str) or not _HTTP_URL_PATTERN.match(source_url)
+    ):
+        return False
+    printed_page_label = getattr(value, "printed_page_label", None)
+    if printed_page_label is not None and (
+        not isinstance(printed_page_label, str) or not printed_page_label.strip()
+    ):
+        return False
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class DocumentSource:
     """Trusted document-level provenance imported into the V3 source registry.

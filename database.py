@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from config import SETTINGS
-from data_models import DocumentSource, KnowledgeArtifact
+from data_models import DocumentSource, KnowledgeArtifact, is_knowledge_artifact
 
 
 Embedding = Sequence[float]
@@ -466,7 +466,7 @@ class KnowledgeStore:
         """Atomically replace canonical rows and their persisted vectors."""
         if len(artifacts) != len(embeddings):
             raise ValueError("artifacts and embeddings must have equal lengths")
-        if any(not isinstance(item, KnowledgeArtifact) for item in artifacts):
+        if any(not is_knowledge_artifact(item) for item in artifacts):
             raise TypeError("artifacts must contain only KnowledgeArtifact objects")
         vectors: list[np.ndarray] = []
         dimension: int | None = None
@@ -521,7 +521,7 @@ class KnowledgeStore:
             raise ValueError("artifacts and embeddings must have equal lengths")
         if not artifacts:
             return 0
-        if any(not isinstance(item, KnowledgeArtifact) for item in artifacts):
+        if any(not is_knowledge_artifact(item) for item in artifacts):
             raise TypeError("artifacts must contain only KnowledgeArtifact objects")
         expected_dimension: int | None = None
         staged_dimension = self.connection.execute(
@@ -604,7 +604,7 @@ class KnowledgeStore:
 
     def ingest_chunk(self, artifact: KnowledgeArtifact, embedding: Embedding) -> int:
         """Append one artifact and embedding for incremental callers."""
-        if not isinstance(artifact, KnowledgeArtifact):
+        if not is_knowledge_artifact(artifact):
             raise TypeError("artifact must be a KnowledgeArtifact")
         vector = _validated_vector(embedding, self.vector_store.dimension)
         with self._lock:

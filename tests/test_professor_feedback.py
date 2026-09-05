@@ -1,5 +1,8 @@
 """Regression tests for the latency and simple-answer issues found in review."""
 
+from types import SimpleNamespace
+
+import api_clients
 from data_models import KnowledgeArtifact
 from database import KnowledgeStore, prepare_runtime_database
 from main import _direct_existence_answer, _ensure_polar_answer_prefix
@@ -211,11 +214,54 @@ def test_native_question_reaches_grounded_negative_synthesis(tmp_path, monkeypat
         }),
     )
 
+    class ReloadedStoreProxy:
+        """Return structurally valid artifacts from a previous module identity."""
+
+        def retrieve(self, *args, **kwargs):
+            return [
+                SimpleNamespace(
+                    document_id=item.document_id,
+                    title=item.title,
+                    page_number=item.page_number,
+                    original_text_chunk=item.original_text_chunk,
+                    source_url=item.source_url,
+                    printed_page_label=item.printed_page_label,
+                )
+                for item in store.retrieve(*args, **kwargs)
+            ]
+
+        def retrieve_document_matches(self, *args, **kwargs):
+            return []
+
     answer, preamble, sources = main.ask_chatbot_with_context(
-        "Are invasive carp native to Missouri?", store
+        "Are invasive carp native to Missouri?", ReloadedStoreProxy()
     )
 
     assert answer.startswith("- No.")
     assert preamble == ""
     assert [source.document_id for source in sources] == ["DOC036"]
     store.close()
+
+
+def test_api_client_accepts_structural_artifact_after_reload(monkeypatch) -> None:
+    legacy_artifact = SimpleNamespace(
+        document_id="DOC036",
+        title="2022 Missouri Comprehensive Conservation Strategy",
+        page_number="298",
+        original_text_chunk="Invasive carp are nonnative fish in Missouri.",
+        source_url=None,
+        printed_page_label=None,
+    )
+    monkeypatch.setattr(
+        api_clients,
+        "call_structured_llm",
+        lambda *_args, **_kwargs: "{}",
+    )
+
+    result = api_clients.call_llm(
+        "System instructions",
+        "User question",
+        {"K1": legacy_artifact},
+    )
+
+    assert result == "{}"
