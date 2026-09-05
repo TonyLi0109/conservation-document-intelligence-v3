@@ -42,12 +42,15 @@ DOCUMENT_DISCOVERY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SIMPLE_EXISTENCE_PATTERN = re.compile(
-    r"^\s*(?:are|is|do|does|did|has|have|was|were)\b", re.IGNORECASE
+    r"^\s*(?:(?:please\s+)?tell\s+me(?:\s+briefly)?\s+whether\b|"
+    r"(?:are|is|do|does|did|has|have|was|were)\b)",
+    re.IGNORECASE,
 )
 EXISTENCE_STOPWORDS = {
     "a", "an", "any", "are", "addressed", "did", "discussed", "do", "does",
     "documented", "found", "has", "have", "in", "is", "mentioned", "of",
-    "present", "the", "there", "was", "were",
+    "present", "the", "there", "was", "were", "tell", "me", "briefly",
+    "whether", "occur", "occurs",
 }
 
 
@@ -643,6 +646,25 @@ def _polar_yes_claim(question: str) -> str | None:
     """Render a natural explicit-Yes claim for supported question templates."""
 
     cleaned = " ".join(question.strip().rstrip("?.!").split())
+    whether_match = re.fullmatch(
+        r"(?:please\s+)?tell\s+me(?:\s+briefly)?\s+whether\s+(.+?)\s+"
+        r"(occur|occurs|exist|exists|are\s+found|are\s+present)\s+in\s+(.+)",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if whether_match:
+        subject, predicate, scope = whether_match.groups()
+        normalized_predicate = {
+            "exist": "exist",
+            "exists": "exist",
+            "are found": "are found",
+            "are present": "are present",
+        }.get(predicate.casefold(), "occur")
+        return (
+            f"Yes. {subject[0].upper() + subject[1:]} "
+            f"{normalized_predicate} in {scope}."
+        )
+
     there_match = re.fullmatch(
         r"are\s+there\s+(.+?)\s+in\s+(.+)", cleaned, re.IGNORECASE
     )

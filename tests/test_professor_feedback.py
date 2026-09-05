@@ -76,6 +76,21 @@ def test_simple_missouri_carp_question_gets_direct_grounded_yes(tmp_path) -> Non
     store.close()
 
 
+def test_tell_me_whether_missouri_carp_question_gets_brief_yes(tmp_path) -> None:
+    store = _store(tmp_path)
+
+    result = _direct_existence_answer(
+        "Tell me briefly whether invasive carp occur in Missouri.", store
+    )
+
+    assert result is not None
+    answer, preamble, sources = result
+    assert answer.startswith("- Yes. Invasive carp occur in Missouri.")
+    assert preamble == ""
+    assert [source.document_id for source in sources] == ["DOC036"]
+    store.close()
+
+
 def test_failed_ai_refresh_keeps_pre_generated_page(tmp_path, monkeypatch) -> None:
     store = _store(tmp_path)
     original = generate_extractive_wiki_concept("Invasive carp", store)
