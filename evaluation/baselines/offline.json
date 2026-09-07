@@ -15,7 +15,7 @@
     "conversations": "ad4d28b34fc3825c1f43c970c760c3b7c94c5357bd1079827fd90f785c9b57d1",
     "wiki": "a25795c3119c2023d7394d1cd9c33d122620bf165ce787ecd0e28fe4fea9e850",
     "fixture_corpus": "4aed8aff47a02931fbad2ae1325c52294b64aecc2c23b06083270f07c1e09cd8",
-    "corpus": "4b84d4db0a190e60b4e8114ca84f8c5f5fb572c3a9b65d331d02a024c49cf5c2"
+    "corpus": "sqlite-logical-v1:e13113197e0a0249b74ad6478fe2128d38cdd7e40a23c8d8942437ee761796cf"
   },
   "cases": [
     {

@@ -41,11 +41,78 @@ def fingerprint(path):
     return digest.hexdigest()
 
 
+def sqlite_snapshot_fingerprint(path):
+    """Hash logical SQLite contents, independently of page layout/version bytes.
+
+    Schema SQL, explicit/implicit row IDs, typed values and complete vector BLOBs
+    remain significant. Rows stream in rowid order, or primary-key order for
+    WITHOUT ROWID tables. Physical root pages, free pages and header bookkeeping
+    do not affect reproducibility across SQLite builds.
+    """
+    digest = hashlib.sha256()
+
+    def add(value):
+        digest.update(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        digest.update(b"\n")
+
+    def quote(identifier):
+        return '"' + identifier.replace('"', '""') + '"'
+
+    def typed(value):
+        if value is None:
+            return ["null"]
+        if isinstance(value, bytes):
+            return ["blob", value.hex()]
+        if isinstance(value, float):
+            return ["real", value.hex()]
+        if isinstance(value, int):
+            return ["integer", str(value)]
+        return ["text", value]
+
+    source = Path(path).resolve()
+    with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as reader:
+        reader.execute("BEGIN")
+        add(["sqlite-logical-snapshot", 1])
+        add(["user_version", reader.execute("PRAGMA user_version").fetchone()[0]])
+        add(["application_id", reader.execute("PRAGMA application_id").fetchone()[0]])
+        schema = reader.execute(
+            "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name"
+        ).fetchall()
+        for item in schema:
+            add(["schema", *item])
+        for kind, name, _, _ in schema:
+            if kind != "table":
+                continue
+            table = quote(name)
+            columns = reader.execute(f"PRAGMA table_info({table})").fetchall()
+            column_names = {column[1].casefold() for column in columns}
+            rowid_alias = next((alias for alias in ("_rowid_", "rowid", "oid")
+                                if alias not in column_names), None)
+            rows = None
+            if rowid_alias is not None:
+                try:
+                    rows = reader.execute(f"SELECT {rowid_alias}, * FROM {table} ORDER BY {rowid_alias}")
+                except sqlite3.OperationalError as error:
+                    if "no such column" not in str(error).casefold():
+                        raise
+            if rows is None:
+                primary_key = [column[1] for column in sorted(columns, key=lambda item: item[5]) if column[5]]
+                if not primary_key:
+                    raise ValueError(f"Table {name} has no accessible stable row identity")
+                rows = reader.execute(f"SELECT * FROM {table} ORDER BY " + ",".join(map(quote, primary_key)))
+                add(["table", name, "primary_key", primary_key])
+            else:
+                add(["table", name, "rowid"])
+            for row in rows:
+                add([typed(value) for value in row])
+    return "sqlite-logical-v1:" + digest.hexdigest()
+
+
 @contextmanager
 def corpus_copy(path):
-    """Yield a disposable snapshot and its pre-evaluation binary fingerprint.
+    """Yield a disposable snapshot and its pre-evaluation logical fingerprint.
 
-    SQLite backup includes committed WAL contents. Hash the closed backup before
+    SQLite backup includes committed WAL contents. Hash the completed backup before
     KnowledgeStore initialization or evaluation can write to it, rather than
     hashing a source file that another writer may subsequently change.
     """
@@ -57,7 +124,7 @@ def corpus_copy(path):
         with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as reader:
             with closing(sqlite3.connect(target)) as writer:
                 reader.backup(writer)
-        snapshot_fingerprint = fingerprint(target)
+        snapshot_fingerprint = sqlite_snapshot_fingerprint(target)
         with KnowledgeStore(target) as store:
             store.evaluation_snapshot_fingerprint = snapshot_fingerprint
             yield store

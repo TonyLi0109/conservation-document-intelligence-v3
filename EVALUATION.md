@@ -43,7 +43,8 @@ runtime code or loose term-overlap-as-groundedness score was copied.
 - evaluation/judges.py: optional semantic-judge protocol; no default provider.
 - evaluation/baselines/offline.json: reviewed deterministic starting baseline.
 - .github/workflows/evaluation.yml: fast tests, integration tests and offline
-  evaluation/baseline checking on push and pull request, with no provider secrets.
+  evaluation/baseline checking on push and pull request, with no provider secrets;
+  JSON/Markdown reports are retained as a workflow artifact.
 
 Dataset files under evaluation/datasets:
 
@@ -176,8 +177,12 @@ The runner verifies real judgment spans against the current corpus before scorin
 
 Reports include UTC timestamp, model/mode, execution settings, case-level metrics,
 pass/fail, failure reasons, dataset and corpus SHA-256 fingerprints, Git revision,
-Python version and elapsed time. JSON fingerprinting ignores formatting/line endings;
-corpus hashing uses the unchanged binary snapshot. Hand-authored vectors contain no
+Python version and elapsed time. JSON fingerprinting ignores formatting/line endings.
+The corpus fingerprint uses the snapshot's logical schema and typed data, including
+row identities and vector blobs, before evaluation mutates its disposable cache.
+SQLite file headers, page layout and library-version bookkeeping are excluded so
+Windows and Linux can compare the same corpus. Committed WAL changes are included.
+Hand-authored vectors contain no
 random sampling; seed 0 is recorded. LLM reproducibility is not promised.
 
 Baseline comparison requires matching dataset/corpus/configuration fingerprints.
@@ -201,7 +206,7 @@ Initial offline run: 42/42 case checks passed in approximately 2 seconds of runn
 (about 3 seconds including process startup on this workstation). This pass count tests
 invariants/label integrity; it does not mean every query retrieves every relevant doc.
 
-Validation on this workstation: 255 pytest cases passed (252 fast tests and 3
+Validation on this workstation: 261 pytest cases passed (258 fast tests and 3
 integration tests), up from 106 existing tests. Full pytest took about 8 seconds;
 the baseline comparison was compatible with zero regressions. No live API calls
 were used. Browser inspection confirmed the offline checkbox default, a 42/42

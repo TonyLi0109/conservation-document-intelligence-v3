@@ -12,7 +12,7 @@ import pytest
 from data_models import KnowledgeArtifact
 from database import KnowledgeStore
 import evaluation
-from evaluation.dataset import corpus_copy, fingerprint
+from evaluation.dataset import corpus_copy, fingerprint, sqlite_snapshot_fingerprint
 
 
 def _source_database(path):
@@ -43,8 +43,7 @@ def test_snapshot_fingerprint_includes_committed_wal_and_ignores_later_source_wr
         with corpus_copy(source) as snapshot:
             captured = snapshot.evaluation_snapshot_fingerprint
             assert _text(snapshot) == "Committed evidence in the WAL."
-            assert captured == fingerprint(snapshot.database_path)
-            assert captured != main_file_before
+            assert captured == sqlite_snapshot_fingerprint(snapshot.database_path)
             _set_text(writer, "New evidence committed after evaluation started.")
             assert _text(snapshot) == "Committed evidence in the WAL."
             assert snapshot.evaluation_snapshot_fingerprint == captured
@@ -62,12 +61,55 @@ def test_snapshot_identity_is_stable_across_copies_and_before_evaluation_mutatio
         path = Path(first.database_path)
         _set_text(first.connection, "Disposable evaluation mutation.")
         assert first.evaluation_snapshot_fingerprint == captured
-        assert fingerprint(path) != captured
+        assert sqlite_snapshot_fingerprint(path) != captured
     assert not path.exists()
     assert fingerprint(source) == source_fingerprint
     with corpus_copy(source) as second:
         assert second.evaluation_snapshot_fingerprint == captured
         assert _text(second) == "Initial canonical evidence."
+
+
+def test_logical_fingerprint_ignores_physical_sqlite_layout_and_housekeeping(tmp_path):
+    first, second = tmp_path / "first.db", tmp_path / "second.db"
+    _source_database(first)
+    with closing(sqlite3.connect(first)) as reader, closing(sqlite3.connect(second)) as writer:
+        reader.backup(writer)
+        writer.execute("PRAGMA page_size=8192")
+        writer.execute("VACUUM")
+    assert fingerprint(first) != fingerprint(second)
+    assert sqlite_snapshot_fingerprint(first) == sqlite_snapshot_fingerprint(second)
+
+
+@pytest.mark.parametrize("mutation", [
+    "UPDATE vector_embeddings SET embedding=X'0000000000000000'",
+    "UPDATE knowledge_artifacts SET title='Changed canonical title'",
+    "CREATE INDEX evaluation_extra_index ON knowledge_artifacts(title)",
+    "PRAGMA user_version=7",
+])
+def test_logical_fingerprint_preserves_vectors_metadata_and_schema(tmp_path, mutation):
+    source = tmp_path / "source.db"
+    _source_database(source)
+    before = sqlite_snapshot_fingerprint(source)
+    with closing(sqlite3.connect(source)) as writer:
+        writer.execute(mutation)
+        writer.commit()
+    assert sqlite_snapshot_fingerprint(source) != before
+
+
+def test_logical_fingerprint_preserves_row_identity_and_handles_without_rowid(tmp_path):
+    first, second = tmp_path / "first.db", tmp_path / "second.db"
+    for path, order in ((first, [(1, "alpha"), (2, "beta")]), (second, [(2, "beta"), (1, "alpha")])):
+        with closing(sqlite3.connect(path)) as writer:
+            writer.execute("CREATE TABLE records (id INTEGER PRIMARY KEY, text TEXT)")
+            writer.executemany("INSERT INTO records VALUES (?,?)", order)
+            writer.execute("CREATE TABLE labels (name TEXT PRIMARY KEY, value BLOB) WITHOUT ROWID")
+            writer.executemany("INSERT INTO labels VALUES (?,?)", [(str(key), text.encode()) for key, text in order])
+            writer.commit()
+    assert sqlite_snapshot_fingerprint(first) == sqlite_snapshot_fingerprint(second)
+    with closing(sqlite3.connect(second)) as writer:
+        writer.execute("UPDATE records SET id=3 WHERE id=1")
+        writer.commit()
+    assert sqlite_snapshot_fingerprint(first) != sqlite_snapshot_fingerprint(second)
 
 
 def _report(case_id):

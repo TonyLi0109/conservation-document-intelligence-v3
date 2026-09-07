@@ -15,3 +15,9 @@ jobs:
       - run: python -m pytest -q -m "not integration"
       - run: python -m pytest -q -m integration
       - run: python -m evaluation.run --baseline evaluation/baselines/offline.json --fail-on-regression
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-evaluation-report
+          path: evaluation/reports/latest.*
+          if-no-files-found: ignore
