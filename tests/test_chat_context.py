@@ -31,7 +31,8 @@ def resolved(query, subject="invasive carp", uses_history=True):
     return json.dumps({"standalone_query": query, "active_subject": subject,
                        "uses_history": uses_history, "needs_clarification": False,
                        "relation": "FOLLOW_UP" if uses_history else "NEW_TOPIC",
-                       "selected_context": "Prior control methods" if uses_history else ""})
+                       "selected_context": "Prior control methods" if uses_history else "",
+                       "clarification_kind": "NONE"})
 
 
 @pytest.fixture
@@ -265,7 +266,7 @@ def test_contextualizer_failure_does_not_use_generic_query(store, monkeypatch):
     monkeypatch.setattr(main, "generate_embedding", lambda *a: pytest.fail("Unresolved query was embedded"))
     diagnostics = {}
     answer, _, sources = main.ask_chatbot_with_context("Which one is better?", store, history=history(), diagnostics=diagnostics)
-    assert "Please name" in answer and not sources
+    assert "Please retry" in answer and not sources
     assert diagnostics["method"] == "resolution_failed"
     assert diagnostics["retrieval_query"] == ""
 

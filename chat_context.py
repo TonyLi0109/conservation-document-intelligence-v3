@@ -17,7 +17,7 @@ from api_clients import call_structured_llm
 MAX_HISTORY_MESSAGES = 6
 MAX_MESSAGE_CHARACTERS = 1800
 MAX_QUERY_CHARACTERS = 2400
-CONTEXT_VERSION = "v3.5-context"
+CONTEXT_VERSION = "v3.5.1-context"
 TOPIC_ALIASES = {
     "hydrilla": ("hydrilla",),
     "Asian longhorned beetle": ("Asian longhorned beetle",),
@@ -41,6 +41,20 @@ BROADER_SCOPE = re.compile(
     r"\b(?:other|different|additional)\b[^?.]{0,60}\b(?:fish|species|ecosystems|regions)\b"
     r"|\b(?:also used for|beyond|across species)\b", re.I,
 )
+CLARIFICATION_MESSAGES = {
+    "THREATS_NOT_METHODS": (
+        "The previous answer listed conservation threats rather than control methods. "
+        "Do you mean data on the impacts of those threats, or the effectiveness of measures addressing them?"
+    ),
+    "MISSING_METHODS": (
+        "The recent discussion did not identify specific methods to compare. "
+        "Do you want me to find measures addressing the issues discussed and then look for evidence of their effectiveness?"
+    ),
+    "AMBIGUOUS_REFERENCE": (
+        "I need to distinguish the references in our recent discussion. "
+        "Which previously discussed subject, method, option, or report should I use for this question?"
+    ),
+}
 
 
 def _explicit_subject(question: str) -> str:
@@ -85,7 +99,20 @@ do not constrain "other invasive fish" to invasive carp. active_subject should
 describe the current target, not the old topic. selected_context is a concise
 description of just the referent being reused, empty for NEW_TOPIC.
 If a reference cannot be resolved unambiguously, set needs_clarification=true
-and leave standalone_query and active_subject empty. Do not guess.
+and leave standalone_query and active_subject empty. Do not guess. Preserve
+FOLLOW_UP/PARTIAL_CONTEXT for a pending clarification; it is not a new topic.
+Set clarification_kind to THREATS_NOT_METHODS when threats have been mistaken
+for interventions, MISSING_METHODS when no actual methods have been identified,
+or AMBIGUOUS_REFERENCE for other unclear referents. The application supplies the
+clarification wording; do not generate an answer, explanation or citations.
+For example, if the previous answer only lists conservation threats and the user
+asks how effective "these methods" are, threats are not methods. Ask whether they
+want data on the threats' impacts or on the effectiveness of measures addressing
+them. Do not invent measures or silently reinterpret the question as impacts.
+If the previous answer does list actual methods, resolve them normally.
+When the user answers a pending clarification, combine that choice with the
+original request (including requested data) and the relevant earlier topic.
+Set clarification_kind to NONE when no clarification is needed.
 """
 
 CONTEXT_SCHEMA = {
@@ -99,8 +126,9 @@ CONTEXT_SCHEMA = {
             "needs_clarification": {"type": "boolean"},
             "relation": {"type": "string", "enum": ["FOLLOW_UP", "PARTIAL_CONTEXT", "NEW_TOPIC"]},
             "selected_context": {"type": "string"},
+            "clarification_kind": {"type": "string", "enum": ["NONE", *CLARIFICATION_MESSAGES]},
         },
-        "required": ["standalone_query", "active_subject", "uses_history", "needs_clarification", "relation", "selected_context"],
+        "required": ["standalone_query", "active_subject", "uses_history", "needs_clarification", "relation", "selected_context", "clarification_kind"],
     },
 }
 
@@ -115,6 +143,7 @@ class ResolvedQuery:
     method: str = "standalone"
     relation: str = "NEW_TOPIC"
     selected_context: str = ""
+    clarification_question: str = ""
 
     def diagnostics(self) -> dict[str, object]:
         return {**asdict(self), "context_version": CONTEXT_VERSION}
@@ -143,8 +172,9 @@ def _recent_history(history: Sequence[Mapping[str, object]]) -> list[dict[str, o
         if isinstance(context, Mapping):
             item["resolved_context"] = {
                 key: str(context.get(key, ""))[:MAX_QUERY_CHARACTERS]
-                for key in ("standalone_query", "active_subject", "relation")
+                for key in ("standalone_query", "active_subject", "relation", "clarification_question")
             }
+            item["resolved_context"]["needs_clarification"] = bool(context.get("needs_clarification"))
         # Only trusted cited source identifiers/titles; never carry chunks as evidence.
         sources = message.get("sources", [])
         if isinstance(sources, list):
@@ -167,7 +197,8 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
     for index, item in enumerate(recent):
         if item["role"] == "user" and _explicit_subject(str(item["content"])) and not REFERENCE_PATTERN.search(str(item["content"])):
             start = index
-        if item["role"] == "assistant" and item.get("resolved_context", {}).get("relation") == "NEW_TOPIC":
+        if (item["role"] == "assistant" and item.get("resolved_context", {}).get("relation") == "NEW_TOPIC"
+                and not item.get("resolved_context", {}).get("needs_clarification")):
             start = index - 1 if index and recent[index - 1]["role"] == "user" else index
     recent = recent[start:]
     subject = _explicit_subject(question)
@@ -180,6 +211,12 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
     try:
         raw = call_structured_llm(CONTEXT_PROMPT, json.dumps(data, ensure_ascii=False),
                                   CONTEXT_SCHEMA, model=model, max_output_tokens=700)
+    except Exception:
+        # A provider failure is not evidence that the user's wording is ambiguous.
+        return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
+                             method="resolution_failed", relation="FOLLOW_UP",
+                             clarification_question="I couldn't process this follow-up just now. Please retry; your conversation is still available.")
+    try:
         payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != set(CONTEXT_SCHEMA["schema"]["required"]):
             raise ValueError("Invalid context schema")
@@ -188,12 +225,21 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
                 raise ValueError("Invalid context flag")
         query, subject = payload["standalone_query"], payload["active_subject"]
         relation, selected = payload["relation"], payload["selected_context"]
+        clarification_kind = payload["clarification_kind"]
+        if not isinstance(clarification_kind, str) or clarification_kind not in {"NONE", *CLARIFICATION_MESSAGES}:
+            raise ValueError("Invalid clarification kind")
         if relation not in {"FOLLOW_UP", "PARTIAL_CONTEXT", "NEW_TOPIC"} or not isinstance(selected, str) or len(selected) > 1200:
             raise ValueError("Invalid context relation")
         if not isinstance(query, str) or not isinstance(subject, str):
             raise ValueError("Invalid context text")
         if payload["needs_clarification"]:
-            return ResolvedQuery(question, "", needs_clarification=True, method="ambiguous")
+            if clarification_kind == "NONE":
+                raise ValueError("Missing clarification kind")
+            return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
+                                 method="ambiguous", relation="PARTIAL_CONTEXT" if relation == "PARTIAL_CONTEXT" else "FOLLOW_UP",
+                                 selected_context=selected, clarification_question=CLARIFICATION_MESSAGES[clarification_kind])
+        if clarification_kind != "NONE":
+            raise ValueError("Inconsistent clarification kind")
         if not query.strip() or len(query) > MAX_QUERY_CHARACTERS or len(subject) > 160:
             raise ValueError("Unbounded or empty contextual query")
         if BROADER_SCOPE.search(question) and has_reference:
@@ -222,9 +268,16 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
         return ResolvedQuery(question, query.strip(), subject.strip(), True, method="contextualized",
                              relation=relation, selected_context=selected)
     except Exception:
-        # Never silently search an unresolved generic follow-up after API failure.
+        # Never silently search an unresolved generic follow-up after invalid output.
         # No conversation text or provider exception is logged here.
-        return ResolvedQuery(question, "", needs_clarification=True, method="resolution_failed")
+        return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
+                             method="invalid_context", relation="FOLLOW_UP")
+
+
+def is_named_entity(subject: str) -> bool:
+    """Only recognized entity aliases are suitable for a strict topic guard."""
+    return any(subject.casefold() == alias.casefold()
+               for aliases in TOPIC_ALIASES.values() for alias in aliases)
 
 
 def matches_subject(artifact: object, subject: str) -> bool:

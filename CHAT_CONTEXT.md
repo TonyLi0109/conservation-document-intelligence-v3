@@ -13,8 +13,10 @@ Explicitly returning to carp starts that topic again.
 Dependent questions use one bounded structured request to resolve relevant
 subjects, methods, comparisons or references. Partial-context questions retain
 selected methods while allowing a broader target such as other invasive fish.
-The carp subject guard applies only to same-topic FOLLOW_UP retrieval, never to
-PARTIAL_CONTEXT or NEW_TOPIC. Selected context and relation are saved alongside
+Recognized entity guards apply only to same-topic FOLLOW_UP retrieval, never to
+PARTIAL_CONTEXT or NEW_TOPIC. Broad subjects such as "conservation threats"
+prioritize matching sources without rejecting other relevant evidence simply
+because it lacks that exact phrase. Selected context and relation are saved alongside
 original/standalone queries, active subject, flags and actual retrieval query.
 
 History is intent, not evidence. Final answers still use newly retrieved canonical
@@ -48,7 +50,7 @@ messages migrate when no browser archive exists.
 
 ## Verification
 
-`python -m pytest -q`: **67 passed**, including existing Wiki/provenance tests.
+`python -m pytest -q`: **79 passed**, including existing Wiki/provenance tests.
 Coverage includes explicit topic switches, post-switch follow-ups, rejected stale
 rewrites, partial-context retrieval of other-fish evidence, malformed context,
 thread isolation, canonical source restoration, legacy migration and Streamlit
@@ -78,5 +80,34 @@ clarification or miss evidence. Same-topic subject matching remains conservative
 The archive is browser storage, not a backup or authenticated transcript record.
 
 No dependency constraints or corpus data changed. The requirements release marker
-is v3.5 to trigger a fresh Streamlit deployment. Backend callers retain the same
+is v3.5.1 to trigger a fresh Streamlit deployment. Backend callers retain the same
 answer/preamble/sources tuple and optional `history`/`diagnostics` arguments.
+
+
+## v3.5.1: contextual clarification recovery
+
+The reported threat-list -> "how effective these methods are" exchange has a
+referent mismatch: the answer listed threats, not interventions. The contextualizer
+now selects a clarification category; the application renders fixed wording asking
+whether the user means threat impacts or the effectiveness of measures addressing
+those threats. Model-written clarification prose is never displayed, preventing a
+second path for uncited factual claims.
+It does not invent a method list or search until the user resolves the ambiguity.
+Provider failures instead request a retry; invalid structured output remains
+conservative. No provider exception text is shown or logged by the resolver.
+
+Pending clarification turns retain FOLLOW_UP/PARTIAL_CONTEXT rather than resetting
+the topic. History trimming also recognizes the clarification flag on old saved
+NEW_TOPIC messages, so a clarification reply can recover the original question,
+threat list and request for data. Explicit new topics still bypass this context.
+Clarification metadata survives the existing browser archive without migration.
+
+Twelve additional offline regression cases cover the exact reported exchange, both
+clarification choices, legacy saved history, independent topics, archive isolation,
+malformed clarification categories, injected uncited claims and canonical intervention evidence whose wording
+does not literally contain "conservation threats". Existing numerical citation and
+unrelated-species tests continue to pass. The earlier unsupported-facets warning
+is a separate provenance result and remains unchanged.
+
+The existing contextualization call now includes a clarification category; no extra
+API request or model-generated title is added. The 700-token output cap is unchanged.

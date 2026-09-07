@@ -16,7 +16,7 @@ import re
 import sys
 
 from api_clients import call_llm, generate_embedding, generate_embeddings
-from chat_context import matches_subject, resolve_query
+from chat_context import is_named_entity, matches_subject, resolve_query
 from config import SETTINGS
 from data_models import KnowledgeArtifact
 from database import KnowledgeStore
@@ -295,8 +295,8 @@ def ask_chatbot_with_context(
         diagnostics["retrieval_query"] = context.standalone_query if not context.needs_clarification else ""
     if context.needs_clarification:
         return (
-            "Please name the subject, method, option, or report you mean so I can search the right evidence.",
-            "I couldn't safely resolve this follow-up from the recent conversation.",
+            context.clarification_question or "Please name the subject, method, option, or report you mean so I can search the right evidence.",
+            "",
             [],
         )
     question = context.standalone_query
@@ -342,15 +342,19 @@ def ask_chatbot_with_context(
             None, max(top_k, top_k * 4), method="keyword", query_text=question
         )
     if context.uses_history and context.active_subject:
-        # Supplement semantic results with the existing keyword retriever, then
-        # reject unrelated subjects before assigning any evidence handles.
+        # Supplement semantic results with the existing keyword retriever.
         keyword_candidates = store.retrieve(
             None, top_k * 4, method="keyword", query_text=question
         )
         candidates = candidates + keyword_candidates
         if context.relation == "FOLLOW_UP":
-            candidates = [artifact for artifact in candidates
-                          if matches_subject(artifact, context.active_subject)]
+            matching = [artifact for artifact in candidates
+                        if matches_subject(artifact, context.active_subject)]
+            # Broad topics such as "conservation threats" are retrieval intent,
+            # not an entity string that every useful source must repeat verbatim.
+            candidates = matching if is_named_entity(context.active_subject) else matching + [
+                artifact for artifact in candidates if not matches_subject(artifact, context.active_subject)
+            ]
     # Document-oriented questions benefit from source diversity rather than five
     # neighboring chunks from the same report. The order remains retrieval-owned.
     artifacts: list[KnowledgeArtifact] = []
