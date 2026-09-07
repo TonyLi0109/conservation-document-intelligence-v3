@@ -50,7 +50,7 @@ messages migrate when no browser archive exists.
 
 ## Verification
 
-`python -m pytest -q`: **95 passed**, including existing Wiki/provenance tests.
+`python -m pytest -q`: **99 passed**, including existing Wiki/provenance tests.
 Coverage includes explicit topic switches, post-switch follow-ups, rejected stale
 rewrites, partial-context retrieval of other-fish evidence, malformed context,
 thread isolation, canonical source restoration, legacy migration and Streamlit
@@ -138,6 +138,16 @@ new response. Old pending clarification metadata remains supported. The archive
 component receives an internal runtime version for deployment verification; no
 new product control or provider request is added.
 
-Verification: `python -m pytest -q` passes 95 tests. The exact reported dialogue
+Verification: `python -m pytest -q` passes 99 tests. The exact reported dialogue
 is tested with contextualization, embedding, search and synthesis forbidden;
 additional invalid-output fixtures exercise the model-owned fallback.
+
+
+Production verification for v3.5.2: an isolated browser first observed the actual
+runtime_version from the archive component, then restored the exact reported
+threat question/answer and submitted the same methods follow-up. The displayed
+reply was the specific threats-versus-measures clarification. Saved diagnostics
+confirmed active_subject="conservation threats", uses_history=true,
+history_messages_used=2, method="referent_type_mismatch", and an empty retrieval
+query. Reload restored the reply. This branch makes no OpenAI calls; arbitrary
+model-response behavior is covered by offline invalid-output fixtures.
