@@ -204,6 +204,9 @@ def ingest_corpus(pdf_directory: str, store: KnowledgeStore) -> int:
                 fallback_pages=report.fallback_pages,
                 chunk_count=report.chunk_count,
             )
+        if hasattr(store, "connection"):
+            from document_lifecycle import rebuild_lifecycles
+            rebuild_lifecycles(store)
         logging.info(
             "Committed %s artifacts across %s canonical document(s)",
             committed_count,
@@ -300,6 +303,33 @@ def ask_chatbot_with_context(
             [],
         )
     question = context.standalone_query
+
+    from temporal import detect_temporal_intent, select_temporal_evidence, render_temporal_answer
+    temporal_intent = detect_temporal_intent(original_question)
+    if temporal_intent.mode != "none" and hasattr(store, "connection"):
+        anchors = []
+        if context.uses_history and context.relation == "FOLLOW_UP":
+            # Only the last cited answer in this page-owned thread can anchor a
+            # family. Its old date is not a current/latest retrieval constraint.
+            for message in reversed(history or []):
+                if message.get("role") == "assistant":
+                    anchors = [source.document_id for source in message.get("sources", [])
+                               if isinstance(getattr(source, "document_id", None), str) and (
+                                   not is_named_entity(context.active_subject) or matches_subject(source, context.active_subject))]
+                    break
+        selection = select_temporal_evidence(question, store, top_k=top_k,
+                                             intent=temporal_intent, anchor_document_ids=anchors)
+        if diagnostics is not None:
+            diagnostics["temporal_intent"] = temporal_intent.mode
+            diagnostics["temporal_selected_document_ids"] = selection["selected_document_ids"]
+            diagnostics["temporal_decisions"] = selection["decisions"]
+            if not context.active_subject and selection["selected_document_ids"] and len({
+                doc["family_id"] for doc in selection["documents"].values()
+            }) == 1:
+                from document_lifecycle import normalize_title
+                first_document = selection["documents"][selection["selected_document_ids"][0]]
+                diagnostics["active_subject"] = normalize_title(first_document["title"])
+        return render_temporal_answer(selection, store)
 
     comparison_answer = _direct_fiscal_year_comparison(question, store)
     if comparison_answer is not None:
@@ -405,6 +435,21 @@ def ask_chatbot_with_context(
         preamble = preamble.strip()
         if len(preamble) > 1_000:
             raise ValueError("Chatbot preamble exceeds 1,000 characters")
+        from temporal import is_lifecycle_assertion
+        if is_lifecycle_assertion(preamble):
+            preamble = ""
+        # A normal synthesis response cannot establish document authority or
+        # supersession. Those assertions belong to the local temporal renderer.
+        claims = envelope.get("claims", [])
+        retained = [claim for claim in claims if not is_lifecycle_assertion(str(claim.get("text", "")))]
+        if len(retained) != len(claims):
+            if not retained:
+                raise ValueError("Lifecycle assertions require verified lifecycle evidence")
+            envelope["claims"] = retained
+            envelope["status"] = "partially_answered"
+            envelope["unsupported_facets"] = list(envelope.get("unsupported_facets", [])) + [
+                "Document currentness or replacement requires a separate source-version check."
+            ]
         answer, sources = validate_render_and_collect_sources(
             json.dumps(envelope, ensure_ascii=False), artifact_handles
         )
@@ -802,6 +847,10 @@ def search_corpus(
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty string")
     _require_store_interface(store, "retrieve")
+    from temporal import detect_temporal_intent, select_temporal_evidence
+    intent = detect_temporal_intent(query)
+    if intent.mode != "none" and hasattr(store, "connection"):
+        return select_temporal_evidence(query, store, top_k=top_k, intent=intent)["artifacts"]
     query_embedding = generate_embedding(query)
     return store.retrieve(query_embedding, top_k)
 
@@ -821,7 +870,11 @@ def _parse_args() -> argparse.Namespace:
         "--precompile-wiki", action="store_true",
         help="Create missing Wiki pages and upgrade old deterministic pages without API calls",
     )
+    mode.add_argument("--backfill-lifecycle", action="store_true",
+                      help="Rebuild document dates, families and revision evidence without API calls")
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    parser.add_argument("--database", type=Path, default=SETTINGS.storage.database_path,
+                        help="SQLite corpus to query or migrate (defaults to the configured corpus)")
     parser.add_argument("--debug", action="store_true", help="Enable provenance validation diagnostics")
     return parser.parse_args()
 
@@ -843,8 +896,9 @@ def _run_cli() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
-    with KnowledgeStore() as store:
-        store.upsert_document_sources(list(load_source_catalog().values()))
+    with KnowledgeStore(args.database) as store:
+        if not args.backfill_lifecycle:
+            store.upsert_document_sources(list(load_source_catalog().values()))
         if args.ingest:
             chunk_count = ingest_corpus(args.ingest, store)
             print(f"Persisted {chunk_count} canonical artifact(s).")
@@ -858,6 +912,11 @@ def _run_cli() -> None:
 
             generated = precompile_all_wiki_concepts(store)
             print(f"Pre-generated {generated} Wiki page(s).")
+            return
+        if args.backfill_lifecycle:
+            from document_lifecycle import rebuild_lifecycles
+            records = rebuild_lifecycles(store)
+            print(f"Updated lifecycle metadata for {len(records)} documents; canonical text and vectors retained.")
             return
         if store.artifact_count == 0:
             raise RuntimeError("The persistent corpus is empty. Run --ingest first.")

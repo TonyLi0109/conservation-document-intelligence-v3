@@ -156,8 +156,9 @@ def run_live_answers(store, cases, model, top_k):
 def run_suite(*, corpus=SETTINGS.storage.database_path, retrieval_cases=DATASET_DIR / "retrieval.json",
               top_k=5, live=False, model=None, case_ids=None):
     from evaluation.scenarios import run_conversation_cases, run_wiki_cases
+    from evaluation.temporal_cases import run_temporal_cases
     paths = {"retrieval": Path(retrieval_cases), **{name: DATASET_DIR / (name + ".json")
-             for name in ("retrieval_fixtures", "provenance", "conversations", "wiki")}}
+             for name in ("retrieval_fixtures", "provenance", "conversations", "wiki", "temporal")}}
     datasets = {name: load_dataset(path) for name, path in paths.items()}
     selected = set(case_ids or [])
     if selected:
@@ -177,6 +178,7 @@ def run_suite(*, corpus=SETTINGS.storage.database_path, retrieval_cases=DATASET_
                 rows += run_provenance_cases(fixtures, datasets["provenance"]["cases"])
             rows += run_wiki_cases(store, datasets["wiki"]["cases"])
             rows += run_conversation_cases(datasets["conversations"]["cases"])
+            rows += run_temporal_cases(store, datasets["temporal"])
         if attempts:
             rows.append(row({"case_id": "OFFLINE-NETWORK"}, "infrastructure", "offline_fixture", {},
                             [f"Offline suite attempted {len(attempts)} provider calls"]))

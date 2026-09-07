@@ -18,6 +18,8 @@ contracts, source registry, storage, validation, and knowledge-compilation flow.
 - Citations preserve physical PDF pages and, when the source defines standard
   PDF PageLabels, also show the logical printed label.
 - Offline evaluation measures ranked retrieval, citation safety, Wiki and conversation regressions; live provider runs are opt-in.
+- Document lifecycle evidence distinguishes current guidance, historical versions,
+  explicit replacements and partial updates without treating every newer source as authoritative.
 
 ## Architecture
 
@@ -181,6 +183,9 @@ Neither legacy repository is imported at runtime. `data/source_catalog.csv` is
 the V3-owned manifest initially curated using their public source metadata.
 
 ## Evaluation
+
+For document dates, revision families, temporal queries and metadata-only migration,
+see [document lifecycle and current-guidance reasoning](DOCUMENT_LIFECYCLE.md).
 
 Run `python -m evaluation.run` for the offline suite and JSON/Markdown reports.
 The Evaluation tab uses the same isolated runner without API calls by default.

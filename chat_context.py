@@ -41,6 +41,12 @@ BROADER_SCOPE = re.compile(
     r"\b(?:other|different|additional)\b[^?.]{0,60}\b(?:fish|species|ecosystems|regions)\b"
     r"|\b(?:also used for|beyond|across species)\b", re.I,
 )
+_TEMPORAL_SUBJECT = re.compile(
+    r"^(?:(?:the|a|an|current|latest|most|recent|updated|revised|earlier|older|"
+    r"previous|original|new|formal|applicable|final|draft)\s+)*"
+    r"(?:guidance|recommendations?|reports?|strateg(?:y|ies)|plans?|advice|polic(?:y|ies))"
+    r"(?:\s+(?:now|today))?$", re.I,
+)
 CLARIFICATION_MESSAGES = {
     "THREATS_NOT_METHODS": (
         "The previous answer listed conservation threats rather than control methods. "
@@ -64,7 +70,7 @@ def _explicit_subject(question: str) -> str:
     match = re.match(r"^\s*(?:tell me about|what is|what reports discuss)\s+(.+?)[?.!]*$", question, re.I)
     if match:
         phrase = match[1].strip(" .?!")
-        if not re.search(r"\b(?:cost|effectiveness|evidence|best|first|second|challenge|method|approach|report)\b", phrase, re.I):
+        if not _TEMPORAL_SUBJECT.fullmatch(phrase) and not re.search(r"\b(?:cost|effectiveness|evidence|best|first|second|challenge|method|approach|report)\b", phrase, re.I):
             return phrase[:160]
     return ""
 
@@ -266,6 +272,68 @@ def _obvious_threat_method_mismatch(question: str, recent: list[dict[str, object
     return found >= 2 and not remainder
 
 
+def _temporal_followup(question: str, recent: list[dict[str, object]]) -> ResolvedQuery | None:
+    """Carry intent into a version check without carrying an old date constraint.
+
+    The temporal policy receives source IDs separately as family anchors. A prior
+    answer identifies the user's referent, never whether a recommendation remains
+    valid. All currentness and version facts must be established from the corpus.
+    """
+    if not recent or _explicit_subject(question):
+        return None
+    from temporal import detect_temporal_intent
+
+    intent = detect_temporal_intent(question)
+    if intent.mode == "none":
+        return None
+    # Explicit targets such as "... guidance for northern snakehead" need their
+    # own resolution; a temporal phrase alone must not override a new subject.
+    target = re.search(r"\b(?:for|about|regarding|concerning)\s+(.+?)[?.!]*$", question, re.I)
+    if target and not REFERENCE_PATTERN.search(target[1]):
+        return None
+
+    def topic(value: str, *, allow_generic: bool = False) -> str:
+        named = _named_subject(value)
+        if named:
+            return named
+        # Report titles are allowed intent anchors. Remove standalone version
+        # years so "current" cannot keep filtering to the previously asked year.
+        value = re.sub(r"\b(?:19|20)\d{2}(?:\s*[-\u2013]\s*(?:\d{4}|\d{2}))?\b", "", value)
+        value = " ".join(value.split()).strip(" ,.;:-\u2013\u2014")
+        return "" if not allow_generic and _TEMPORAL_SUBJECT.fullmatch(value) else value[:160]
+
+    subject = ""
+    for item in reversed(recent):
+        saved = item.get("resolved_context", {})
+        if saved.get("needs_clarification"):
+            continue
+        if saved.get("active_subject"):
+            subject = topic(str(saved["active_subject"]))
+            if subject:
+                break
+        if item["role"] == "user":
+            subject = _named_subject(str(item["content"]))
+            if subject:
+                break
+    if not subject:
+        for item in reversed(recent):
+            documents = item.get("cited_documents", [])
+            if not documents:
+                continue
+            titles = {topic(document["title"], allow_generic=True) for document in documents} - {""}
+            if len(titles) == 1:
+                subject = titles.pop()
+            break
+    if not subject:
+        return None
+    return ResolvedQuery(
+        question, f"{question.strip()} Topic: {subject}.", subject, uses_history=True,
+        method="temporal_context", relation="FOLLOW_UP",
+        selected_context="Previously discussed topic or report family; temporal scope comes from the current question",
+        history_messages_used=len(recent),
+    )
+
+
 def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None = None,
                   *, model: str | None = None) -> ResolvedQuery:
     """Resolve before embedding/search, with no model call for independent turns."""
@@ -290,6 +358,10 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
         inferred = _threat_management_query(question, recent)
         if inferred is not None:
             return inferred
+
+    temporal = _temporal_followup(question, recent)
+    if temporal is not None:
+        return temporal
 
     data = {"current_question": question, "recent_messages": recent}
     try:

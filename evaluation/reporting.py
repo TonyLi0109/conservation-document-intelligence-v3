@@ -86,6 +86,9 @@ def render_summary(report):
                 "raw_numeric_support_rate", "raw_provenance_validity_rate", "raw_grounded_proxy_rate",
                 "overview_characters", "important_fact_count", "evidence_count", "invalid_citation_count",
                 "missing_source_url_count", "turn_count", "refresh_checks",
+                "correct_current_document_rate", "historical_query_accuracy", "version_relationship_accuracy",
+                "unsupported_supersession_claim_count", "temporal_intent_accuracy",
+                "latest_report_accuracy", "lifecycle_metadata_accuracy", "inapplicable_document_preference_errors",
             )
             for metric in visible:
                 if metric in group["metrics_mean"]:

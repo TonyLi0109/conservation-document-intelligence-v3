@@ -56,6 +56,12 @@ Dataset files under evaluation/datasets:
 | provenance.json | valid multi-source numeric answer plus 8 invalid/adversarial examples |
 | wiki.json | cached load, local rebuild, scripted regeneration compatibility, invalid refresh, provider failure and missing evidence |
 | conversations.json | 11 scenarios: follow-up, independent switch, post-switch pronoun, explicit return, partial scope, isolation, resume, direct threat follow-up, refresh reset, ambiguity and no evidence |
+| temporal.json | 22 lifecycle scenarios: 16 synthetic cases and 6 inspected corpus cases; dates, revision relationships, current/historical/comparison selection and follow-up currentness |
+
+Temporal execution is in evaluation/temporal_cases.py. Its deterministic metrics
+cover labelled current/historical selection, temporal intent, relation validity,
+metadata evidence and unsupported supersession statements. See
+[DOCUMENT_LIFECYCLE.md](DOCUMENT_LIFECYCLE.md) for temporal rules, limitations and migration.
 
 The earlier evaluation/cases.json is retained as a legacy reference; its unreviewed
 expectations are not silently treated as ground truth by the new runner.
@@ -200,11 +206,15 @@ python -m evaluation.run --write-baseline evaluation/baselines/offline.json
 This is explicit and refuses a failing run. Do not refresh a baseline just to hide
 regressions. The stored baseline omits transcripts, timestamps and runtime duration.
 
-## Initial results and limitations
+## Initial evaluation release results and limitations
 
 Initial offline run: 42/42 case checks passed in approximately 2 seconds of runner work
 (about 3 seconds including process startup on this workstation). This pass count tests
 invariants/label integrity; it does not mean every query retrieves every relevant doc.
+
+The lifecycle extension adds 22 cases, bringing the current suite to 64 cases.
+The 42-case measurements below describe the original evaluation release and its
+unchanged retrieval/Wiki benchmark; temporal scores are reported separately.
 
 Validation on this workstation: 261 pytest cases passed (258 fast tests and 3
 integration tests), up from 106 existing tests. Full pytest took about 8 seconds;

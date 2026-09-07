@@ -15,6 +15,8 @@ from database import KnowledgeStore, prepare_runtime_database
 from evaluation import run_evaluation
 from main import ask_chatbot_with_context, search_corpus
 from source_catalog import load_source_catalog
+from document_lifecycle import get_lifecycles
+from temporal import detect_temporal_intent, lifecycle_label, verified_relationships
 from validator import format_artifact_location
 import wiki_compiler
 
@@ -110,6 +112,7 @@ def get_store() -> KnowledgeStore:
     )
     store = KnowledgeStore(database_path)
     store.upsert_document_sources(list(load_source_catalog().values()))
+    get_lifecycles(store)
     return store
 
 
@@ -146,6 +149,9 @@ def render_corpus_tab(store: KnowledgeStore) -> None:
         or query in str(item["Document ID"]).casefold()
         or query in str(item["Title"]).casefold()
     ]
+    lifecycles = get_lifecycles(store)
+    visible = [{**item, "Document dates/status": lifecycle_label(lifecycles.get(item["Document ID"], {}))}
+               for item in visible]
     st.dataframe(
         visible,
         width="stretch",
@@ -233,6 +239,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
 
         if not sources:
             return
+        lifecycles = get_lifecycles(store)
         with st.expander(f"Sources ({len(sources)})"):
             for index, source in enumerate(sources, start=1):
                 page = format_artifact_location(source)
@@ -244,6 +251,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
                 if len(source.original_text_chunk) > 500:
                     snippet += "…"
                 st.text(snippet)
+                st.caption(lifecycle_label(lifecycles.get(source.document_id, {})))
                 if source.source_url:
                     st.link_button(
                         "Open source document",
@@ -363,7 +371,8 @@ def render_search_tab(store: KnowledgeStore) -> None:
         else:
             with st.spinner(f"Running {search_method.lower()}..."):
                 try:
-                    if search_method == "Semantic Search":
+                    temporal_search = detect_temporal_intent(query).mode != "none"
+                    if temporal_search or search_method == "Semantic Search":
                         results = search_corpus(query, store, top_k=top_k)
                     else:
                         results = store.retrieve(
@@ -374,7 +383,7 @@ def render_search_tab(store: KnowledgeStore) -> None:
                         )
                     st.session_state.v3_search_results = results
                     st.session_state.v3_search_query = query
-                    st.session_state.v3_search_method = search_method
+                    st.session_state.v3_search_method = "Temporal source applicability" if temporal_search else search_method
                 except Exception as error:
                     st.session_state.v3_search_results = []
                     print(f"\n[DEBUG] Corpus search failed: {repr(error)}\n")
@@ -390,18 +399,22 @@ def render_search_tab(store: KnowledgeStore) -> None:
 
     st.subheader(f"Results for “{st.session_state.get('v3_search_query', '')}”")
     st.caption(f"Ranked with {st.session_state.get('v3_search_method', 'Search')}.")
+    lifecycles = get_lifecycles(store)
     for rank, artifact in enumerate(results, start=1):
         with st.container(border=True):
             heading, location = st.columns([4, 1])
             heading.markdown(f"#### {rank}. {artifact.title}")
             location.markdown(f"**{format_artifact_location(artifact)}**")
             st.caption(f"{artifact.document_id} · Canonical source chunk")
+            st.caption(lifecycle_label(lifecycles.get(artifact.document_id, {})))
             with st.expander("View exact source text", expanded=rank == 1):
                 st.text(artifact.original_text_chunk)
 
 
 def render_wiki_tab(store: KnowledgeStore, selected_model: str) -> None:
     """Compile and render a provenance-backed concept page."""
+    from document_lifecycle import get_lifecycles
+    from temporal import lifecycle_label, verified_relationships
 
     st.header("Concept Wiki")
     st.caption(
@@ -472,6 +485,19 @@ def render_wiki_tab(store: KnowledgeStore, selected_model: str) -> None:
 
     st.divider()
     st.subheader(str(concept["concept_title"]))
+    lifecycles = get_lifecycles(store)
+    document_ids = {artifact.document_id for artifact in artifacts.values()}
+    for relation in verified_relationships(store, lifecycles):
+        if relation["target_id"] in document_ids:
+            operation = {"supersedes": "supersedes", "replaces": "replaces",
+                         "revision_of": "revises", "amendment_of": "amends portions of",
+                         "supplement_to": "supplements", "withdraws": "withdraws"}.get(relation["type"], relation["type"])
+            st.info(f"Version context: {relation['document_id']} states that it {operation} {relation['target_id']}. "
+                    "This Wiki retains historical evidence; check the source's status and effective date before applying the update.")
+            st.caption(f"{relation['document_id']} · " + lifecycle_label(lifecycles[relation['document_id']]))
+            with st.expander(f"Version relationship evidence: {relation['document_id']} → {relation['target_id']}"):
+                st.caption(f"{relation['document_id']} · PDF p. {relation['evidence']['page_number']}")
+                st.text(relation["evidence"]["exact_span"])
     if result.get("knowledge_id"):
         st.caption(
             f"Reusable V3 knowledge artifact: {result['knowledge_id']} · "
@@ -511,6 +537,7 @@ def render_wiki_tab(store: KnowledgeStore, selected_model: str) -> None:
         page = format_artifact_location(artifact)
         citation = f"[{artifact.document_id}, {page}]"
         with st.expander(f"Evidence {number} · {citation} · {artifact.title}"):
+            st.caption(lifecycle_label(lifecycles.get(artifact.document_id, {})))
             st.text(evidence["exact_span"])
             if artifact.source_url:
                 st.link_button(
