@@ -9,6 +9,7 @@ import tempfile
 import streamlit as st
 
 from config import CHAT_MODEL_OPTIONS, SETTINGS
+from chat_context import MAX_HISTORY_MESSAGES
 from database import KnowledgeStore, prepare_runtime_database
 from evaluation import run_evaluation
 from main import ask_chatbot_with_context, search_corpus
@@ -200,6 +201,8 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
 
     if "v3_chat_messages" not in st.session_state:
         st.session_state.v3_chat_messages = []
+    if st.button("New conversation", key="v3_new_conversation"):
+        st.session_state.v3_chat_messages = []
 
     def render_sources(sources: list[object], *, key_namespace: str) -> None:
         """Render only backend-validated cited artifacts."""
@@ -250,6 +253,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
     if not question:
         return
 
+    recent_history = st.session_state.v3_chat_messages[-MAX_HISTORY_MESSAGES:]
     st.session_state.v3_chat_messages.append(
         {"role": "user", "content": question}
     )
@@ -259,10 +263,13 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
     with st.chat_message("assistant"):
         with st.spinner("Retrieving and validating evidence..."):
             try:
+                context_diagnostics: dict[str, object] = {}
                 answer, preamble, validated_sources = ask_chatbot_with_context(
                     question,
                     store,
                     model=selected_model,
+                    history=recent_history,
+                    diagnostics=context_diagnostics,
                 )
             except Exception as error:
                 print(f"\n[DEBUG] Chatbot failed: {repr(error)}\n")
@@ -285,6 +292,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
             "preamble": preamble,
             "content": answer,
             "sources": validated_sources,
+            "context": context_diagnostics,
         }
     )
 

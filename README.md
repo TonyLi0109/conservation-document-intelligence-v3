@@ -130,6 +130,23 @@ regression coverage, measurements, limitations, and manual verification.
 
 ## Configuration
 
+### Multi-turn chatbot
+
+Chatbot follow-ups now resolve recent conversation into a standalone question
+**before** embedding and retrieval. The existing session message list retains
+the resolved query and active subject alongside each assistant response. Only
+the most recent six messages are considered; conversation text is intent
+context, never evidence. Explicit new topics override prior context.
+
+Use **New conversation** to clear the session's messages and context. Independent
+questions have no contextualizer call. Ambiguous follow-ups make one bounded
+structured request using the selected model, followed by the existing grounded
+answer pipeline. If a reference cannot be safely resolved, the app asks for
+clarification rather than searching a generic pronoun-only question.
+
+See [multi-turn implementation and verification](CHAT_CONTEXT.md) for details,
+limitations, tests and the optional backend diagnostics interface.
+
 Defaults live in `config.py`. Important overrides include:
 
 - `V3_LLM_MODEL`

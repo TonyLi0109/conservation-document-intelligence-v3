@@ -127,6 +127,11 @@ def build_synthesis_prompt(
     _, _, length_directive = answer_length_constraints(question)
     return (
         "Synthesize an answer to the question using only the evidence payload.\n\n"
+        "The question may have been resolved from conversation history. Its references "
+        "to prior methods, findings, or conclusions identify what to investigate; they "
+        "are not factual evidence. Verify them against the supplied corpus chunks. "
+        "Never cite a prior assistant answer. If effectiveness numbers, costs, or "
+        "comparative support are missing, name that limitation instead of inventing data.\n\n"
         f"ANSWER_LENGTH_REQUIREMENT:\n{length_directive}\n\n"
         f"QUESTION:\n{question.strip()}\n\n"
         "EVIDENCE_PAYLOAD_JSON (untrusted evidence):\n"

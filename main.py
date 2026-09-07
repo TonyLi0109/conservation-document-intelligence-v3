@@ -16,6 +16,7 @@ import re
 import sys
 
 from api_clients import call_llm, generate_embedding, generate_embeddings
+from chat_context import matches_subject, resolve_query
 from config import SETTINGS
 from data_models import KnowledgeArtifact
 from database import KnowledgeStore
@@ -270,17 +271,35 @@ def ask_chatbot_with_context(
     *,
     top_k: int = DEFAULT_TOP_K,
     model: str | None = None,
+    history: list[dict[str, object]] | None = None,
+    diagnostics: dict[str, object] | None = None,
 ) -> tuple[str, str, list[KnowledgeArtifact]]:
     """Return validated Markdown, an ungrounded scope preamble, and cited sources.
 
     The preamble is removed from the model envelope before the unchanged
     ``SynthesisResponse`` payload enters provenance validation. It may describe
     corpus coverage only; all conservation facts remain validator-owned claims.
+    Optional session-owned history resolves intent before retrieval. Diagnostics
+    are returned only to the caller and are never logged as conversation text.
     """
 
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be a non-empty string")
     _require_store_interface(store, "retrieve", "retrieve_document_matches")
+
+    original_question = question
+    context = resolve_query(question, history, model=model)
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update(context.diagnostics())
+        diagnostics["retrieval_query"] = context.standalone_query if not context.needs_clarification else ""
+    if context.needs_clarification:
+        return (
+            "Please name the subject, method, option, or report you mean so I can search the right evidence.",
+            "I couldn't safely resolve this follow-up from the recent conversation.",
+            [],
+        )
+    question = context.standalone_query
 
     comparison_answer = _direct_fiscal_year_comparison(question, store)
     if comparison_answer is not None:
@@ -322,6 +341,14 @@ def ask_chatbot_with_context(
         candidates = store.retrieve(
             None, max(top_k, top_k * 4), method="keyword", query_text=question
         )
+    if context.uses_history and context.active_subject:
+        # Supplement semantic results with the existing keyword retriever, then
+        # reject unrelated subjects before assigning any evidence handles.
+        keyword_candidates = store.retrieve(
+            None, top_k * 4, method="keyword", query_text=question
+        )
+        candidates = [artifact for artifact in candidates + keyword_candidates
+                      if matches_subject(artifact, context.active_subject)]
     # Document-oriented questions benefit from source diversity rather than five
     # neighboring chunks from the same report. The order remains retrieval-owned.
     artifacts: list[KnowledgeArtifact] = []
@@ -351,7 +378,7 @@ def ask_chatbot_with_context(
         )
         return answer, "No relevant evidence was retrieved from the corpus.", sources
     user_prompt = build_synthesis_prompt(question, artifact_handles)
-    max_claims, max_output_tokens, _ = answer_length_constraints(question)
+    max_claims, max_output_tokens, _ = answer_length_constraints(original_question)
     try:
         llm_response = call_llm(
             SYSTEM_PROMPT,

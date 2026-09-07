@@ -1,4 +1,4 @@
-# Release v3.3: rebuild the deployment to reload precomputed Wiki artifacts.
+# Release v3.4: rebuild the deployment to load session-aware chatbot context.
 openai==2.54.0
 numpy>=1.26.0
 pypdf==6.16.1
