@@ -1,0 +1,56 @@
+{
+  "dataset_id": "controlled-retrieval-v1",
+  "version": 1,
+  "synthetic": true,
+  "label_scope": "complete_within_synthetic_fixture",
+  "cases": [
+    {
+      "case_id": "FIX-RET-CARP",
+      "question": "invasive carp control effectiveness",
+      "retrieval_method": "semantic",
+      "query_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "k": 3,
+      "relevance": {
+        "DOC901": 1,
+        "DOC902": 1,
+        "DOC908": 1
+      },
+      "minimum_recall": 1,
+      "forbidden_document_ids": [
+        "DOC903"
+      ]
+    },
+    {
+      "case_id": "FIX-RET-ZEBRA",
+      "question": "zebra mussel impacts and management",
+      "retrieval_method": "semantic",
+      "query_vector": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "k": 2,
+      "relevance": {
+        "DOC904": 1,
+        "DOC905": 1
+      },
+      "minimum_recall": 1,
+      "forbidden_document_ids": [
+        "DOC901",
+        "DOC903"
+      ]
+    },
+    {
+      "case_id": "FIX-RET-EMPTY",
+      "question": "qxunmentionedtermzz",
+      "retrieval_method": "keyword",
+      "k": 5,
+      "relevance": {},
+      "expect_empty": true
+    }
+  ]
+}

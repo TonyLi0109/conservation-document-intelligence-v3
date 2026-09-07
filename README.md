@@ -17,7 +17,7 @@ contracts, source registry, storage, validation, and knowledge-compilation flow.
   coverage and source SHA-256.
 - Citations preserve physical PDF pages and, when the source defines standard
   PDF PageLabels, also show the logical printed label.
-- A fixed evaluation suite measures retrieval and evidence-aware answer status.
+- Offline evaluation measures ranked retrieval, citation safety, Wiki and conversation regressions; live provider runs are opt-in.
 
 ## Architecture
 
@@ -182,9 +182,10 @@ the V3-owned manifest initially curated using their public source metadata.
 
 ## Evaluation
 
-The fixed cases live in `evaluation/cases.json`. The Evaluation tab runs semantic
-retrieval and grounded generation and saves the latest transparent report to
-`data/evaluation_results.json`.
+Run `python -m evaluation.run` for the offline suite and JSON/Markdown reports.
+The Evaluation tab uses the same isolated runner without API calls by default.
+See [evaluation datasets, metrics, baseline and commands](EVALUATION.md) for details.
+Live semantic/answer evaluation requires explicit `--live` or the UI opt-in checkbox.
 
 For the final research comparison, run the same question set against both legacy
 systems and preserve their outputs. Compare Retrieval Recall@5, citation

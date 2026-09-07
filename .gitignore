@@ -13,6 +13,7 @@ venv/
 data/*.db
 data/*.db-*
 data/evaluation_results.json
+evaluation/reports/
 
 # The canonical read-ready corpus is intentionally deployed with the app.
 !data/corpus.db

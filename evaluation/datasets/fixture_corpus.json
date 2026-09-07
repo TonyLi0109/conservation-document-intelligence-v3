@@ -1,0 +1,88 @@
+{
+  "dataset_id": "synthetic-conservation-v1",
+  "version": 1,
+  "synthetic": true,
+  "description": "Invented offline regression evidence, numbers, titles, and example.org URLs. These are not scientific findings or corpus relevance judgments. Embeddings are hand-authored vectors used only to exercise ranking and adversarial topic drift.",
+  "documents": [
+    {
+      "document_id": "DOC901",
+      "title": "Synthetic invasive carp harvest study",
+      "page_number": "1",
+      "original_text_chunk": "Invasive carp are nonnative fish that include bighead carp and silver carp. Invasive carp occur in Missouri and compete with native fish for food. Commercial harvest and targeted netting are invasive carp control methods. In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites. This invented result applies only to the trial conditions and is not a general efficacy estimate.",
+      "source_url": "https://example.org/synthetic/carp-harvest.pdf",
+      "embedding": [1.0, 0.0, 0.0]
+    },
+    {
+      "document_id": "DOC902",
+      "title": "Synthetic invasive carp acoustic barriers study",
+      "page_number": "2",
+      "original_text_chunk": "Invasive carp management includes acoustic deterrents, acoustic telemetry, and physical barriers in the Mississippi River. In this synthetic test, an acoustic barrier reduced invasive carp upstream passage by 50% during the monitored period. Acoustic telemetry tracked silver carp movement to assess barrier performance. Passage reduction is a different endpoint from population reduction; long-term population effects were not measured.",
+      "source_url": "https://example.org/synthetic/carp-acoustics.pdf",
+      "embedding": [0.95, 0.05, 0.0]
+    },
+    {
+      "document_id": "DOC903",
+      "title": "Synthetic invasive aquatic plants herbicide trial",
+      "page_number": "3",
+      "original_text_chunk": "Invasive aquatic plants were treated with herbicide. In this synthetic trial, treatment reduced hydrilla coverage by 80%. These management effectiveness data concern plants; no fish were studied. Hydrilla is an invasive aquatic plant whose dense growth can alter aquatic habitat.",
+      "source_url": "https://example.org/synthetic/plants.pdf",
+      "embedding": [0.0, 0.0, 1.0]
+    },
+    {
+      "document_id": "DOC904",
+      "title": "Synthetic zebra mussel impacts report",
+      "page_number": "4",
+      "original_text_chunk": "Zebra mussels are invasive freshwater mollusks. Zebra mussels filter plankton, alter food webs, compete with native mussels, and clog water intake pipes in the Great Lakes. Monitoring of zebra mussel settlement documents impacts on infrastructure and native aquatic communities.",
+      "source_url": "https://example.org/synthetic/zebra-impacts.pdf",
+      "embedding": [0.0, 1.0, 0.0]
+    },
+    {
+      "document_id": "DOC905",
+      "title": "Synthetic zebra mussel decontamination trial",
+      "page_number": "5",
+      "original_text_chunk": "Zebra mussel management includes boat inspection, decontamination, and equipment drying to limit transport between lakes. In this synthetic laboratory trial, hot-water decontamination removed 90% of attached zebra mussels from sampled equipment. This laboratory endpoint does not establish lake-wide eradication or a field operating recommendation.",
+      "source_url": "https://example.org/synthetic/zebra-management.pdf",
+      "embedding": [0.05, 0.95, 0.0]
+    },
+    {
+      "document_id": "DOC906",
+      "title": "Synthetic other invasive fish acoustic telemetry study",
+      "page_number": "6",
+      "original_text_chunk": "Acoustic telemetry and targeted removal are also used for other invasive fish. Northern snakehead and blue catfish were monitored with acoustic telemetry to track movement in the Chesapeake Bay watershed. This synthetic report describes movement monitoring; it does not establish that acoustic tracking alone controls populations.",
+      "source_url": "https://example.org/synthetic/other-fish.pdf",
+      "embedding": [0.75, 0.05, 0.2]
+    },
+    {
+      "document_id": "DOC907",
+      "title": "Synthetic floodplain wetland restoration study",
+      "page_number": "7",
+      "original_text_chunk": "Conservation threats include habitat loss, pollution, climate change, and invasive species. Wetland and floodplain restoration reconnects river habitats and supports native fish and migratory birds. In this synthetic study, restored floodplain sites supported 30% more juvenile native fish than disconnected sites. The association alone does not isolate restoration from differences among sites.",
+      "source_url": "https://example.org/synthetic/restoration.pdf",
+      "embedding": [0.2, 0.2, 0.6]
+    },
+    {
+      "document_id": "DOC908",
+      "title": "Synthetic contrasting invasive carp harvest outcome",
+      "page_number": "8",
+      "original_text_chunk": "Commercial harvest is an invasive carp control method. In a second synthetic invasive carp field trial, commercial harvest produced no statistically significant change in abundance over one year. Different sites and follow-up periods limit comparison with the two-year harvest trial. An effectiveness summary must retain this contrasting outcome rather than treating all studies as successful.",
+      "source_url": "https://example.org/synthetic/carp-contrasting.pdf",
+      "embedding": [0.9, 0.1, 0.0]
+    },
+    {
+      "document_id": "DOC909",
+      "title": "Synthetic conservation threats overview",
+      "page_number": "9",
+      "original_text_chunk": "The main conservation threats include direct drivers such as land and sea use change, direct exploitation of organisms, climate change, pollution, and invasive alien species. This synthetic overview identifies threats; it does not list tested control methods or quantify their effectiveness.",
+      "source_url": "https://example.org/synthetic/threats.pdf",
+      "embedding": [0.1, 0.2, 0.7]
+    },
+    {
+      "document_id": "DOC910",
+      "title": "Synthetic habitat restoration measures outcome",
+      "page_number": "10",
+      "original_text_chunk": "Habitat restoration measures address land use change; a synthetic monitoring example recorded a 25 percent increase in native cover. Pollution reduction and invasive species removal are additional responses to conservation threats. The native cover measurement is specific to restoration sites and does not measure the effectiveness of every conservation response.",
+      "source_url": "https://example.org/synthetic/measures.pdf",
+      "embedding": [0.15, 0.2, 0.65]
+    }
+  ]
+}

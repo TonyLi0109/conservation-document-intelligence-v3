@@ -1,0 +1,40 @@
+{
+  "dataset_id": "wiki-corpus-regressions-v1",
+  "version": 1,
+  "description": "Real corpus Wiki quality invariants. Numeric minima establish useful content presence, not verbosity or semantic support. Provider regeneration is scripted from its supplied local compilation and evaluates structural compatibility only. Run on a disposable database copy.",
+  "cases": [
+    {
+      "case_id": "wiki-invasive-carp-cached",
+      "topic": "Invasive carp",
+      "operation": "cached",
+      "thresholds": {"min_overview_characters": 80, "min_important_facts": 3, "min_evidence_count": 3, "min_related_entities": 1}
+    },
+    {
+      "case_id": "wiki-invasive-carp-local-recompile",
+      "topic": "Invasive carp",
+      "operation": "local_recompile",
+      "thresholds": {"min_overview_characters": 80, "min_important_facts": 3, "min_evidence_count": 3, "min_related_entities": 1}
+    },
+    {
+      "case_id": "wiki-invasive-carp-regenerated-contract",
+      "topic": "Invasive carp",
+      "operation": "regenerate_fixture",
+      "thresholds": {"min_overview_characters": 80, "min_important_facts": 3, "min_evidence_count": 3, "min_related_entities": 1}
+    },
+    {
+      "case_id": "wiki-invalid-refresh-retains-cache",
+      "topic": "Invasive carp",
+      "operation": "invalid_refresh"
+    },
+    {
+      "case_id": "wiki-provider-outage-retains-cache",
+      "topic": "Invasive carp",
+      "operation": "provider_failure"
+    },
+    {
+      "case_id": "wiki-missing-evidence",
+      "topic": "AbsentEvaluationEntityQZX987",
+      "operation": "missing_evidence"
+    }
+  ]
+}

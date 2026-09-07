@@ -1,0 +1,256 @@
+{
+  "dataset_id": "synthetic-provenance-v1",
+  "version": 1,
+  "synthetic": true,
+  "description": "Negative examples test violation detection, not production quality scores. Numerical results are invented fixture data.",
+  "cases": [
+    {
+      "case_id": "CITE-VALID-MULTI",
+      "artifacts": {
+        "K1": "DOC901",
+        "K2": "DOC902"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          },
+          {
+            "text": "In this synthetic test, an acoustic barrier reduced invasive carp upstream passage by 50% during the monitored period.",
+            "evidence_ids": [
+              "K2"
+            ],
+            "supporting_spans": [
+              "In this synthetic test, an acoustic barrier reduced invasive carp upstream passage by 50% during the monitored period."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "expect_metrics": {
+        "claims_provenance_validity_rate": 1.0,
+        "citation_validity_rate": 1.0,
+        "citation_coverage": 1.0,
+        "claims_numeric_support_rate": 1.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K9"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-UNKNOWN-HANDLE",
+      "adversarial": true,
+      "expect_validator_rejection": true,
+      "expect_metrics": {
+        "claims_provenance_validity_rate": 0.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "Harvest reduced abundance by 99%.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "Harvest reduced abundance by 99%."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-INVENTED-SPAN",
+      "adversarial": true,
+      "expect_validator_rejection": true,
+      "expect_metrics": {
+        "claims_provenance_validity_rate": 0.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-WRONG-PAGE",
+      "adversarial": true,
+      "artifact_overrides": {
+        "K1": {
+          "page_number": "999"
+        }
+      },
+      "expect_metrics": {
+        "claims_provenance_validity_rate": 0.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 99% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "GROUND-NUMBER-MISMATCH",
+      "adversarial": true,
+      "expect_metrics": {
+        "claims_numeric_support_rate": 0.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": []
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-MISSING-PROVENANCE",
+      "adversarial": true,
+      "expect_validator_rejection": true,
+      "expect_metrics": {
+        "claims_provenance_validity_rate": 0.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-UNCITED-CLAIM",
+      "adversarial": true,
+      "answer_override": "- Commercial harvest reduced invasive carp abundance by 60%.",
+      "expect_metrics": {
+        "uncited_claim_count": 1,
+        "citation_coverage": 0.0
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-DUPLICATE",
+      "adversarial": true,
+      "answer_override": "- In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites. [DOC901 \u2014 Synthetic invasive carp harvest study, PDF p. 1] [DOC901 \u2014 Synthetic invasive carp harvest study, PDF p. 1]",
+      "expect_metrics": {
+        "duplicate_citation_count": 1
+      }
+    },
+    {
+      "artifacts": {
+        "K1": "DOC901"
+      },
+      "payload": {
+        "status": "answered",
+        "claims": [
+          {
+            "text": "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites.",
+            "evidence_ids": [
+              "K1"
+            ],
+            "supporting_spans": [
+              "In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites."
+            ]
+          }
+        ],
+        "unsupported_facets": []
+      },
+      "case_id": "CITE-FABRICATED-DOCUMENT",
+      "adversarial": true,
+      "answer_override": "- In this synthetic trial, commercial harvest reduced invasive carp abundance by 60% over two years compared with untreated sites. [DOC999 \u2014 Invented source, PDF p. 999]",
+      "expect_metrics": {
+        "valid_citation_count": 0,
+        "citation_validity_rate": 0.0
+      }
+    }
+  ]
+}

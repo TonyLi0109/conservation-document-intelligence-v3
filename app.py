@@ -522,60 +522,40 @@ def render_wiki_tab(store: KnowledgeStore, selected_model: str) -> None:
 
 
 def render_evaluation_tab(store: KnowledgeStore, selected_model: str) -> None:
-    """Render metric-first scaffolding for the future evaluation harness."""
+    """Run isolated offline checks, with explicit opt-in for provider evaluation."""
+    from evaluation.reporting import render_summary
+    import json
 
     st.header("Evaluation")
-    st.caption(
-        "Track retrieval integrity, grounded-answer quality, citation validity, "
-        "latency, and abstention behavior."
-    )
-    documents = store.list_documents()
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("Documents", len(documents))
-    metric_columns[1].metric("Evidence chunks", store.artifact_count)
-    metric_columns[2].metric("Retrieval Top-K", SETTINGS.retrieval.top_k)
-    metric_columns[3].metric(
-        "Compiled knowledge", len(store.list_compiled_concepts())
-    )
-
-    with st.container(border=True):
-        st.subheader("Evaluation queries")
-        st.info(
-            "The fixed V3 suite measures retrieval recall and evidence-aware answer status. "
-            "A run calls the embedding and LLM APIs."
-        )
-        st.markdown(
-            """
-            Future evaluation checks will cover:
-
-            - **Relevance:** retrieved evidence addresses the question.
-            - **Grounding:** every factual claim has verified supporting text.
-            - **Citation quality:** document ID, title, and page resolve correctly.
-            - **Completeness:** supported facets are not unnecessarily omitted.
-            - **Abstention:** unsupported questions produce an explicit refusal.
-            """
-        )
-        if st.button("Run Evaluation Suite", type="primary"):
-            with st.spinner("Running the reproducible evaluation suite..."):
-                try:
-                    st.session_state.v3_evaluation_report = run_evaluation(
-                        store, model=selected_model
-                    )
-                except Exception as error:
-                    st.error(f"Evaluation failed: {error}")
+    st.caption("Reproducible retrieval, citation, Wiki and conversation checks. The default suite runs without API calls.")
+    live = st.checkbox("Include live API evaluation (paid)", value=False)
+    if live:
+        st.info(f"Adds embedding and answer calls for benchmark questions using {selected_model}. Results are reported separately from offline checks.")
+    st.caption("Corpus relevance labels are partial. Scripted conversation tests measure pipeline behavior, not live-model answer quality.")
+    if st.button("Run Evaluation Suite", type="primary"):
+        with st.spinner("Running evaluation in an isolated process..."):
+            try:
+                st.session_state.v3_evaluation_report = run_evaluation(
+                    store, model=selected_model, include_generation=live,
+                )
+            except Exception as error:
+                st.error(f"Evaluation failed: {error}")
     report = st.session_state.get("v3_evaluation_report")
-    if isinstance(report, dict):
-        st.subheader("Latest result")
-        st.caption(f"Generation model: {report.get('model_name', 'unknown')}")
-        result_columns = st.columns(3)
-        result_columns[0].metric("Cases", report["case_count"])
-        result_columns[1].metric(
-            "Retrieval Recall@K", f"{float(report['retrieval_recall_at_k']):.1%}"
-        )
-        result_columns[2].metric(
-            "Status accuracy", f"{float(report['status_accuracy']):.1%}"
-        )
-        st.dataframe(report["cases"], width="stretch", hide_index=True)
+    if isinstance(report, dict) and report.get("report_version") == 1:
+        columns = st.columns(3)
+        columns[0].metric("Cases", report["case_count"])
+        columns[1].metric("Passed", report["passed_count"])
+        columns[2].metric("Failed", report["failed_count"])
+        st.markdown(render_summary(report))
+        st.dataframe([
+            {"Case": row["case_id"], "Category": row["category"], "Mode": row["mode"],
+             "Passed": row["passed"], "Failure reasons": "; ".join(row["failure_reasons"])}
+            for row in report["cases"]
+        ], width="stretch", hide_index=True)
+        st.download_button("Download JSON report", json.dumps(report, ensure_ascii=False, indent=2),
+                           file_name="v3-evaluation.json", mime="application/json")
+        st.download_button("Download Markdown summary", render_summary(report),
+                           file_name="v3-evaluation.md", mime="text/markdown")
 
 
 st.markdown('<div class="v3-kicker">Evidence-grounded research platform · V3</div>', unsafe_allow_html=True)

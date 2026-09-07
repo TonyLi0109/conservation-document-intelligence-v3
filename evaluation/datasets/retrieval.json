@@ -1,0 +1,138 @@
+{
+  "dataset_id": "v3-corpus-retrieval-partial-v1",
+  "version": 1,
+  "label_scope": "partial",
+  "description": "Small curated development benchmark over the bundled canonical corpus. Each positive label has an inspected verbatim span at the stored chunk starting page. Labels are not exhaustive; unjudged documents are not proven irrelevant. Grades: 2 directly addresses the requested evidence, 1 provides relevant contextual evidence. DOC007 and DOC008 duplicate a publication and are separate catalog IDs, not independent studies. Queries were curated with corpus access and are not a held-out test set.",
+  "corpus_notes": [
+    "Physical page_number is the first page of a stored chunk; spans may continue onto subsequent pages.",
+    "Catalog titles and years can differ from text printed in documents: DOC012 is titled Invasive Carp Strategic Science Plan in the catalog, but the text says Strategic Framework, 2023-27; DOC003 is cataloged as a 2024 update but contains 1998 Update text. Labels assert only the inspected stored evidence, not the accuracy of catalog dates.",
+    "Offline keyword and document lookup measurements do not measure live embedding or generated-answer quality. Low scores are findings for this small partial benchmark, not a full-corpus accuracy estimate."
+  ],
+  "cases": [
+    {
+      "case_id": "corpus_carp_control_effectiveness",
+      "question": "What evidence is there on the effectiveness of invasive carp control methods?",
+      "category": "management_methods",
+      "expected_document_ids": ["DOC012", "DOC007", "DOC008"],
+      "relevance": {"DOC012": 2, "DOC007": 1, "DOC008": 1},
+      "judgments": [
+        {"document_id": "DOC012", "page_number": "17", "exact_span": "Driving of fish uses stimuli that are avoided by the carp, such as sounds or electricity (Ridgway and others, 2021), and may include barriers that limit the directions that fleeing fish may choose, as in the Modified Unified Method (Chapman, 2020).", "reason": "Directly describes carp harvest-support methods; does not establish a universal efficacy percentage."},
+        {"document_id": "DOC007", "page_number": "16", "exact_span": "Coordinated actions successfully contained invasive carp within established ranges, preventing their spread into the Great Lakes.", "reason": "Qualitative program outcome relevant to containment effectiveness."},
+        {"document_id": "DOC008", "page_number": "16", "exact_span": "Coordinated actions successfully contained invasive carp within established ranges, preventing their spread into the Great Lakes.", "reason": "Same report as DOC007 under a separate catalog ID; not independent corroboration."}
+      ],
+      "expected_entity": "Invasive carp",
+      "expected_keywords": ["carp", "control", "harvest", "contain"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_carp_acoustic_deterrents",
+      "question": "Which underwater acoustic deterrents and bubble barriers are tested for invasive carp?",
+      "category": "management_methods",
+      "expected_document_ids": ["DOC012"], "relevance": {"DOC012": 2},
+      "judgments": [{"document_id": "DOC012", "page_number": "14", "exact_span": "underwater acoustic deterrents, and oblique bubble curtains (Cupp and others, 2021).", "reason": "Lists the requested deterrent technologies in the carp research framework."}],
+      "expected_entity": "Invasive carp", "expected_keywords": ["acoustic", "bubble", "carp"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_zebra_mussel_impacts",
+      "question": "How do zebra mussels affect water infrastructure and hydropower operations?",
+      "category": "species",
+      "expected_document_ids": ["DOC006"], "relevance": {"DOC006": 2},
+      "judgments": [{"document_id": "DOC006", "page_number": "3", "exact_span": "Dreissenid mussels foul critical infrastructure (gates, valve tunnels, timber cribbing on navigation structures, lock and dam surfaces, intake openings and pipes, cooling water strainers, water sensors, etc.), cause pitting and increase corrosion of hydraulic steel structures (Figure 3), reduce capacity for hydropower generation, and increase maintenance costs.", "reason": "Direct description of physical infrastructure and operational impacts."}],
+      "expected_entity": "Zebra mussel", "expected_keywords": ["mussels", "infrastructure", "hydropower"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_zebra_quantitative_maintenance",
+      "question": "What percentage increase in maintenance tasks was reported at Gavins Point due to zebra mussel fouling?",
+      "category": "quantitative",
+      "expected_document_ids": ["DOC006"], "relevance": {"DOC006": 2},
+      "judgments": [{"document_id": "DOC006", "page_number": "3", "exact_span": "The USACE Omaha District reported a 50% increase in operations and maintenance tasks at the Gavins Point hydropower facility due to zebra mussel and Asian clam fouling of raw water pipes in penstocks, heat exchangers and water cooling systems.", "reason": "Contains a measured 50% maintenance change; includes both zebra mussels and Asian clams, not control efficacy."}],
+      "expected_entity": "Zebra mussel", "expected_keywords": ["50%", "Gavins", "maintenance"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_exact_catalog_title",
+      "question": "Find the Invasive Carp Strategic Science Plan report.",
+      "category": "exact_report_lookup",
+      "expect_claims": false,
+      "expected_document_ids": ["DOC012"], "relevance": {"DOC012": 2},
+      "judgments": [{"document_id": "DOC012", "page_number": "1", "exact_span": "U.S. Geological Survey Invasive Carp Strategic Framework, 2023–27", "reason": "DOC012 catalog title is Invasive Carp Strategic Science Plan; printed title differs. This deliberately exercises remembered catalog-title lookup."}],
+      "expected_entity": "Invasive carp", "expected_keywords": ["Strategic", "Framework"],
+      "retrieval_method": "document", "k": 5
+    },
+    {
+      "case_id": "corpus_missouri_strategy_lookup",
+      "question": "Find the Missouri Comprehensive Conservation Strategy.",
+      "category": "remembered_report_lookup",
+      "expect_claims": false,
+      "expected_document_ids": ["DOC036"], "relevance": {"DOC036": 2},
+      "judgments": [{"document_id": "DOC036", "page_number": "1", "exact_span": "The Missouri Comprehensive Conservation Strategy Responsibly Addressing the Challenges and Opportunities of Modern Conservation Through an Integrated Strategic Approach", "reason": "Report cover identifies the requested comprehensive strategy."}],
+      "expected_keywords": ["Missouri", "Comprehensive", "Strategy"],
+      "retrieval_method": "document", "k": 5
+    },
+    {
+      "case_id": "corpus_large_report_climate_vulnerability",
+      "question": "How many Missouri bird species are highly or moderately vulnerable to climate change in the comprehensive conservation strategy?",
+      "category": "large_report_quantitative",
+      "expected_document_ids": ["DOC036"], "relevance": {"DOC036": 2},
+      "judgments": [{"document_id": "DOC036", "page_number": "131", "exact_span": "Audubon reports Missouri has 13 highly vulnerable, 27 moderate, and 29 bird species of low vulnerability to climate change, as well as 70 reported as stable", "reason": "Specific quantitative finding within a long report, rather than its title or table of contents."}],
+      "expected_keywords": ["13", "27", "vulnerable", "bird"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_related_carp_species",
+      "question": "What is the relationship between invasive carp, bighead carp, silver carp, and protection of the Great Lakes?",
+      "category": "related_entities",
+      "expected_document_ids": ["DOC012"], "relevance": {"DOC012": 2},
+      "judgments": [{"document_id": "DOC012", "page_number": "10", "exact_span": "technologies for controlling the spread of bighead, black, grass, and silver carp to (1) protect the Great Lakes and other uninvaded waters from these species and (2) reduce populations where they are present or established to minimize adverse effects.", "reason": "Links the named carp species with protection of the Great Lakes and population management."}],
+      "expected_entity": "Invasive carp", "expected_keywords": ["bighead", "silver", "Great Lakes"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_other_fish_acoustic_telemetry",
+      "question": "How are acoustic tagging and telemetry used to monitor northern snakehead and blue catfish near Washington DC?",
+      "category": "research_findings",
+      "expected_document_ids": ["DOC005"], "relevance": {"DOC005": 2},
+      "judgments": [{"document_id": "DOC005", "page_number": "23", "exact_span": "Northern snakehead, • Blue catfish, and • Flathead catfish. Acoustic tagging and telemetry are in use for all three fish species to monitor their locations and movement in these waters in and around Washington DC.", "reason": "Monitoring methods used for other invasive fish; does not label tracking as population control."}],
+      "expected_entity": "Northern snakehead", "expected_keywords": ["Acoustic", "snakehead", "catfish"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_missouri_wetland_program",
+      "question": "What monitoring, restoration, and education activities are covered by the Missouri Wetland Program Plan?",
+      "category": "management_planning",
+      "expected_document_ids": ["DOC002"], "relevance": {"DOC002": 2},
+      "judgments": [{"document_id": "DOC002", "page_number": "1", "exact_span": "The core elements of this plan include: 1) Monitoring and Assessment; 2) Regulation; 3) Voluntary Restoration and Protection; 4) Water Quality Standards; and 5) Education.", "reason": "Direct enumeration of the requested program activities and domains."}],
+      "expected_keywords": ["Monitoring", "Restoration", "Education"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_wetland_loss_quantitative",
+      "question": "What percentage of Missouri's original wetland habitat remains?",
+      "category": "quantitative",
+      "expected_document_ids": ["DOC001"], "relevance": {"DOC001": 2},
+      "judgments": [{"document_id": "DOC001", "page_number": "139", "exact_span": "with an estimated 13-15% of the state’s original 4.8 million acres of wetland habitat remaining.", "reason": "Direct numeric remaining-habitat estimate in the stored wildlife plan; not a new present-day estimate."}],
+      "expected_keywords": ["13-15%", "wetland", "remaining"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_waterfowl_population_findings",
+      "question": "How far below waterfowl plan population objectives were scaup and pintail reported?",
+      "category": "research_quantitative",
+      "expected_document_ids": ["DOC003"], "relevance": {"DOC003": 2},
+      "judgments": [{"document_id": "DOC003", "page_number": "28", "exact_span": "Only scaup exhibited a decreasing trend, and are now 45 percent below the Plan population objective. Pintail numbers, while relatively stable during the last few years, currently are 55 percent below the Plan objective.", "reason": "Contains both species-specific figures. Printed content is historical; catalog year is not used to date the finding."}],
+      "expected_keywords": ["45 percent", "55 percent", "scaup", "Pintail"],
+      "retrieval_method": "keyword", "k": 5
+    },
+    {
+      "case_id": "corpus_conservation_threat_drivers",
+      "question": "What are the main conservation threats and direct drivers of biodiversity decline across the documents?",
+      "category": "cross_corpus_threats",
+      "expected_document_ids": ["DOC032"], "relevance": {"DOC032": 2},
+      "judgments": [{"document_id": "DOC032", "page_number": "12", "exact_span": "The direct drivers (land/sea use change; direct exploitation of organisms; climate change; pollution; and invasive alien species)", "reason": "Enumerates the drivers cited in the recent real-user conversation; positive label does not imply other reports are irrelevant."}],
+      "expected_keywords": ["direct drivers", "climate change", "pollution"],
+      "retrieval_method": "keyword", "k": 5
+    }
+  ]
+}

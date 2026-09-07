@@ -1,0 +1,117 @@
+{
+  "dataset_id": "conversation-regressions-v1",
+  "version": 1,
+  "description": "Scripted offline provider fixtures execute production intent validation, retrieval, provenance and page-session state. Fixture query vectors and exact source quotes are not measurements of real embedding/model quality. A-G follow the requested regressions; threat-method inference and refresh reset preserve the latest user requirements.",
+  "cases": [
+    {
+      "case_id": "conversation-A-contextual-effectiveness",
+      "turns": [
+        {"thread": "A", "question": "What are the effective methods to control invasive carp?", "query_embedding": [1, 0, 0], "claim_count": 2,
+         "expected": {"relation": "NEW_TOPIC", "active_subject": "invasive carp", "uses_history": false, "resolver_calls": 0, "source_document_ids": ["DOC901", "DOC902"]}},
+        {"thread": "A", "question": "Provide some data on how effective these methods are.", "query_embedding": [0, 0, 1], "top_k": 3, "claim_count": 3,
+         "resolver": {"standalone_query": "Provide quantitative effectiveness data on commercial harvest, targeted netting and acoustic barriers for invasive carp.", "active_subject": "invasive carp", "uses_history": true, "needs_clarification": false, "relation": "FOLLOW_UP", "selected_context": "Commercial harvest, targeted netting and acoustic barriers from the prior answer", "clarification_kind": "NONE"},
+         "expected": {"relation": "FOLLOW_UP", "active_subject": "invasive carp", "uses_history": true, "needs_clarification": false, "resolver_calls": 1, "query_contains": ["invasive carp", "commercial harvest", "acoustic barriers"], "source_document_ids": ["DOC901", "DOC902", "DOC908"], "forbidden_document_ids": ["DOC903"], "answer_not_contains": ["hydrilla", "80%"]}}
+      ],
+      "expected_thread_message_counts": {"A": 4}
+    },
+    {
+      "case_id": "conversation-B-new-topic-same-thread",
+      "turns": [
+        {"question": "Tell me about invasive carp.", "query_embedding": [1, 0, 0], "expected": {"source_document_ids": ["DOC901"]}},
+        {"question": "What are the major impacts of zebra mussels?", "query_embedding": [0, 1, 0],
+         "expected": {"relation": "NEW_TOPIC", "active_subject": "zebra mussels", "uses_history": false, "resolver_calls": 0, "query_not_contains": ["invasive carp"], "source_document_ids": ["DOC904"], "forbidden_document_ids": ["DOC901", "DOC902", "DOC908"], "answer_contains": ["Zebra mussels"], "answer_not_contains": ["invasive carp"]}}
+      ]
+    },
+    {
+      "case_id": "conversation-C-followup-after-switch",
+      "turns": [
+        {"question": "Tell me about invasive carp.", "query_embedding": [1, 0, 0]},
+        {"question": "Tell me about zebra mussels.", "query_embedding": [0, 1, 0]},
+        {"question": "What management methods are effective for them?", "query_embedding": [0.05, 0.95, 0],
+         "resolver": {"standalone_query": "What management methods are effective for zebra mussels?", "active_subject": "zebra mussels", "uses_history": true, "needs_clarification": false, "relation": "FOLLOW_UP", "selected_context": "Zebra mussels from the most recent topic", "clarification_kind": "NONE"},
+         "expected": {"relation": "FOLLOW_UP", "active_subject": "zebra mussels", "history_messages_used": 2, "resolver_calls": 1, "query_contains": ["zebra mussels"], "query_not_contains": ["invasive carp"], "resolver_prompt_not_contains": ["invasive carp"], "source_document_ids": ["DOC905"], "forbidden_document_ids": ["DOC901", "DOC902", "DOC908"]}}
+      ]
+    },
+    {
+      "case_id": "conversation-D-return-to-earlier-topic",
+      "turns": [
+        {"question": "Tell me about invasive carp.", "query_embedding": [1, 0, 0]},
+        {"question": "Tell me about zebra mussels.", "query_embedding": [0, 1, 0]},
+        {"question": "Going back to invasive carp, what control method has the strongest evidence?", "query_embedding": [1, 0, 0],
+         "expected": {"relation": "NEW_TOPIC", "active_subject": "invasive carp", "uses_history": false, "resolver_calls": 0, "query_contains": ["invasive carp"], "query_not_contains": ["zebra mussels"], "source_document_ids": ["DOC901"]}}
+      ]
+    },
+    {
+      "case_id": "conversation-E-partial-context-broadens-fish",
+      "turns": [
+        {"question": "What invasive carp control methods are discussed?", "query_embedding": [0.95, 0.05, 0], "expected": {"source_document_ids": ["DOC902"]}},
+        {"question": "Which of those methods are also used for other invasive fish?", "query_embedding": [0.75, 0.05, 0.2],
+         "resolver": {"standalone_query": "Which acoustic telemetry methods are also used for other invasive fish?", "active_subject": "other invasive fish", "uses_history": true, "needs_clarification": false, "relation": "PARTIAL_CONTEXT", "selected_context": "Acoustic telemetry from the invasive carp discussion", "clarification_kind": "NONE"},
+         "expected": {"relation": "PARTIAL_CONTEXT", "active_subject": "other invasive fish", "uses_history": true, "needs_clarification": false, "query_contains": ["other invasive fish", "acoustic telemetry"], "query_not_contains": ["Subject: invasive carp"], "source_document_ids": ["DOC906"], "answer_contains": ["Northern snakehead"], "forbidden_document_ids": ["DOC903"]}}
+      ]
+    },
+    {
+      "case_id": "conversation-F-isolated-threads",
+      "turns": [
+        {"thread": "A", "question": "What are the effective methods to control invasive carp?", "query_embedding": [1, 0, 0]},
+        {"thread": "B", "question": "Tell me about zebra mussels.", "query_embedding": [0, 1, 0],
+         "expected": {"uses_history": false, "resolver_calls": 0, "source_document_ids": ["DOC904"]}},
+        {"thread": "B", "question": "What management methods are effective for them?", "query_embedding": [0.05, 0.95, 0],
+         "resolver": {"standalone_query": "What management methods are effective for zebra mussels?", "active_subject": "zebra mussels", "uses_history": true, "needs_clarification": false, "relation": "FOLLOW_UP", "selected_context": "Zebra mussels in thread B", "clarification_kind": "NONE"},
+         "expected": {"active_subject": "zebra mussels", "history_messages_used": 2, "resolver_prompt_not_contains": ["invasive carp"], "source_document_ids": ["DOC905"]}}
+      ],
+      "expected_thread_message_counts": {"A": 2, "B": 4}
+    },
+    {
+      "case_id": "conversation-G-resume-old-thread-same-page",
+      "turns": [
+        {"thread": "A", "question": "What are the effective methods to control invasive carp?", "query_embedding": [1, 0, 0], "claim_count": 2},
+        {"thread": "B", "question": "Tell me about zebra mussels.", "query_embedding": [0, 1, 0]},
+        {"action": "rerun"},
+        {"action": "switch", "thread": "A", "expected_message_count": 2},
+        {"thread": "A", "question": "Which of those methods has the strongest quantitative evidence?", "query_embedding": [1, 0, 0],
+         "resolver": {"standalone_query": "Which invasive carp control method, commercial harvest or acoustic barriers, has the strongest quantitative evidence?", "active_subject": "invasive carp", "uses_history": true, "needs_clarification": false, "relation": "FOLLOW_UP", "selected_context": "Control methods from thread A before it was reopened", "clarification_kind": "NONE"},
+         "expected": {"relation": "FOLLOW_UP", "active_subject": "invasive carp", "history_messages_used": 2, "resolver_prompt_not_contains": ["zebra mussels"], "resolver_prompt_contains": ["Commercial harvest"], "source_document_ids": ["DOC901"], "forbidden_document_ids": ["DOC904", "DOC905"]}}
+      ],
+      "expected_thread_message_counts": {"A": 4, "B": 2}
+    },
+    {
+      "case_id": "conversation-user-threats-direct-effectiveness",
+      "turns": [
+        {"question": "What are the main conservation threats mentioned across the documents?", "query_embedding": [0.1, 0.2, 0.7], "sentence_count": 1,
+         "expected": {"source_document_ids": ["DOC909"], "answer_contains": ["land and sea use change", "climate change"]}},
+        {"question": "provide some data on how effective these methods are", "query_embedding": [0.15, 0.2, 0.65],
+         "expected": {"relation": "FOLLOW_UP", "active_subject": "conservation threats", "uses_history": true, "needs_clarification": false, "resolver_calls": 0, "query_contains": ["measures addressing conservation threats", "how effective"], "source_document_ids": ["DOC910"], "answer_contains": ["25 percent"], "answer_not_contains": ["Please name the subject", "Do you mean data", "Which previously discussed subject"]}}
+      ]
+    },
+    {
+      "case_id": "conversation-refresh-clears-earlier-history",
+      "turns": [
+        {"thread": "A", "question": "Tell me about invasive carp.", "query_embedding": [1, 0, 0]},
+        {"thread": "B", "question": "Tell me about zebra mussels.", "query_embedding": [0, 1, 0]},
+        {"action": "refresh"},
+        {"thread": "A", "question": "Tell me about hydrilla.", "query_embedding": [0, 0, 1],
+         "expected": {"relation": "NEW_TOPIC", "active_subject": "hydrilla", "uses_history": false, "resolver_calls": 0, "history_messages_used": 0, "source_document_ids": ["DOC903"]}}
+      ],
+      "expected_thread_message_counts": {"A": 2}
+    },
+    {
+      "case_id": "conversation-ambiguous-reference-retains-thread",
+      "turns": [
+        {"question": "Tell me about invasive carp.", "query_embedding": [1, 0, 0]},
+        {"question": "Was that first or second?", "query_embedding": [1, 0, 0],
+         "resolver": {"standalone_query": "", "active_subject": "", "uses_history": true, "needs_clarification": true, "relation": "FOLLOW_UP", "selected_context": "The ordinal reference has no named alternatives", "clarification_kind": "AMBIGUOUS_REFERENCE"},
+         "expected": {"needs_clarification": true, "uses_history": true, "source_count": 0, "resolver_calls": 1, "answer_contains": ["recent discussion"]}},
+        {"action": "switch", "thread": "A", "expected_message_count": 4}
+      ]
+    },
+    {
+      "case_id": "conversation-no-evidence",
+      "empty_corpus": true,
+      "turns": [
+        {"question": "What are the effective methods to control invasive carp?", "query_embedding": [1, 0, 0],
+         "expected": {"relation": "NEW_TOPIC", "uses_history": false, "resolver_calls": 0, "source_count": 0, "answer_contains": ["No relevant evidence was retrieved"]}}
+      ]
+    }
+  ]
+}

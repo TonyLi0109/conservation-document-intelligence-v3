@@ -1,4 +1,4 @@
-# Release v3.6: direct contextual answers and empty conversations on refresh.
+# Release v3.7: offline evaluation, reproducible benchmarks and regression reports.
 openai==2.54.0
 numpy>=1.26.0
 pypdf==6.16.1
