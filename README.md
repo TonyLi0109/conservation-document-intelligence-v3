@@ -106,11 +106,27 @@ are pre-generated from exact canonical excerpts and appear immediately when an
 entity is selected. “Regenerate from evidence” explicitly requests a richer AI
 compilation; if that request times out, the existing page remains available.
 
-To rebuild any missing pre-generated Wiki pages without an API call:
+After ingestion or a compiler upgrade, prepare the deployment database without
+an API call. This creates missing pages and upgrades older deterministic pages;
+existing AI-refreshed pages are preserved:
 
 ```powershell
 python main.py --precompile-wiki
 ```
+
+The local compiler now builds a source-derived introduction, up to eight distinct
+facts, conservative explicit relationships, and multiple excerpts per source.
+Both builders share evidence selection, the five-section schema, evidence
+aggregation, validation, and SQLite persistence. Defaults select up to 12 chunks
+across documents with up to eight spans each. AI refresh adds model-written
+synthesis; it remains an explicit action. Existing artifacts load directly from
+SQLite. A missing or outdated deterministic artifact is repaired locally, with
+no model or embedding request.
+
+Run preparation before starting Streamlit. Restart an already running app after
+updating its seed database so that its runtime copy and session cache reload.
+See [Wiki quality implementation notes](WIKI_QUALITY.md) for the root cause,
+regression coverage, measurements, limitations, and manual verification.
 
 ## Configuration
 

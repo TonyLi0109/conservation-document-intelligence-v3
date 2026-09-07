@@ -100,7 +100,7 @@ class RetrievalSettings:
 
 @dataclass(frozen=True, slots=True)
 class WikiSettings:
-    top_k: int = field(default_factory=lambda: _positive_int("V3_WIKI_TOP_K", 5))
+    top_k: int = field(default_factory=lambda: _positive_int("V3_WIKI_TOP_K", 12))
     output_tokens: int = field(
         default_factory=lambda: _positive_int("V3_WIKI_OUTPUT_TOKENS", 3_000)
     )
@@ -108,7 +108,7 @@ class WikiSettings:
         default_factory=lambda: _positive_int("V3_WIKI_SPANS_PER_ARTIFACT", 8)
     )
     compiler_version: str = field(
-        default_factory=lambda: os.environ.get("V3_WIKI_COMPILER_VERSION", "v3.1")
+        default_factory=lambda: os.environ.get("V3_WIKI_COMPILER_VERSION", "v3.3")
     )
 
 

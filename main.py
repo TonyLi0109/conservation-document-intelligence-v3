@@ -786,7 +786,7 @@ def _parse_args() -> argparse.Namespace:
     )
     mode.add_argument(
         "--precompile-wiki", action="store_true",
-        help="Create fast deterministic Wiki pages for every curated entity",
+        help="Create missing Wiki pages and upgrade old deterministic pages without API calls",
     )
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     parser.add_argument("--debug", action="store_true", help="Enable provenance validation diagnostics")

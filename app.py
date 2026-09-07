@@ -17,15 +17,10 @@ from validator import format_artifact_location
 import wiki_compiler
 
 
-# Module-qualified access keeps startup resilient while Streamlit Cloud replaces
-# files during a Git sync; it avoids a top-level ``cannot import name`` crash if
-# app.py becomes visible a moment before the matching compiler file.
+# Keep display and explicit AI refresh separate, including during hot reloads.
+# Never substitute the AI builder for the local page loader.
 generate_wiki_concept = wiki_compiler.generate_wiki_concept
-generate_extractive_wiki_concept = getattr(
-    wiki_compiler,
-    "generate_extractive_wiki_concept",
-    generate_wiki_concept,
-)
+generate_extractive_wiki_concept = wiki_compiler.generate_extractive_wiki_concept
 
 
 APP_TITLE = "Conservation Document Intelligence"

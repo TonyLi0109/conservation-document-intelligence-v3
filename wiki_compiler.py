@@ -10,7 +10,7 @@ from typing import Any
 from api_clients import LLM_MODEL, call_structured_llm, generate_embedding
 from config import CHAT_MODEL_OPTIONS, SETTINGS
 from data_models import KnowledgeArtifact
-from database import KnowledgeStore
+from database import KnowledgeStore, WIKI_ENTITY_CANDIDATES
 
 
 WIKI_TOP_K = SETTINGS.wiki.top_k
@@ -19,10 +19,145 @@ MAX_SPANS_PER_ARTIFACT = SETTINGS.wiki.max_spans_per_artifact
 MIN_SPAN_CHARACTERS = 40
 MAX_SPAN_CHARACTERS = 600
 EXTRACTIVE_MODEL_NAME = "deterministic-extractive"
-EXTRACTIVE_COMPILER_VERSION = "v3.2-extractive"
+EXTRACTIVE_COMPILER_VERSION = "v3.3-extractive"
 LOGGER = logging.getLogger(__name__)
 SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 TERM_PATTERN = re.compile(r"[\w'-]+", re.UNICODE)
+
+
+def _mentions(text: str, name: str) -> bool:
+    return bool(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I))
+
+
+def _span_score(span: str, topic: str) -> int:
+    """Prefer definitions and substantive topic statements over repeated labels."""
+    score = 10 if _mentions(span, topic) else 0
+    if re.search(r"^" + re.escape(topic) + r"\s+(?:(?:is|are)\s+|a collective term\b)", span, re.I):
+        score += 12
+    if re.search(r"\b(?:include|includes|threat|native|habitat|feed|compete|control|remov\w*|spread|harm)\b", span, re.I):
+        score += 3
+    if re.search(r"\b(?:threat\w*|compete|harm\w*|risk|disrupt\w*)\b", span, re.I):
+        score += 4
+    if re.search(r"https?://|\.{2,}|\b(?:table of contents|references cited)\b", span, re.I):
+        score -= 15
+    if re.search(r"\b(?:h\s+ttps|www\s*\.)|\b\d+\s+[A-Z][a-z]+\s+[A-Z]", span):
+        score -= 5
+    return score
+
+
+def _prepare_evidence(topic: str, store: KnowledgeStore, *, semantic_fallback: bool = False):
+    """Common bounded retrieval and source-span selection for both builders."""
+    retrieved = store.retrieve(None, WIKI_TOP_K * 4, method="keyword", query_text=topic)
+    if not retrieved and semantic_fallback:
+        retrieved = store.retrieve(generate_embedding(topic), WIKI_TOP_K)
+    # Rank useful sentences, then take one chunk per document before filling
+    # remaining slots. Repetitive headers must not crowd out definitions.
+    candidates = []
+    for artifact in retrieved:
+        try:
+            spans = _allowed_spans(artifact.original_text_chunk, topic)
+        except ValueError:
+            continue
+        spans.sort(key=lambda span: -_span_score(span, topic))
+        candidates.append((artifact, spans))
+    candidates.sort(key=lambda item: -_span_score(item[1][0], topic))
+    chosen, deferred, documents = [], [], set()
+    for item in candidates:
+        if item[0].document_id in documents:
+            deferred.append(item)
+        else:
+            chosen.append(item)
+            documents.add(item[0].document_id)
+    chosen = (chosen + deferred)[:WIKI_TOP_K]
+    if not chosen:
+        raise RuntimeError("No safe evidence spans were found for this Wiki concept")
+    artifacts = {f"K{i}": item[0] for i, item in enumerate(chosen, 1)}
+    allowed = {f"K{i}": item[1] for i, item in enumerate(chosen, 1)}
+    return artifacts, allowed
+
+
+def _extractive_payload(topic: str, allowed: dict[str, list[str]]) -> dict[str, object]:
+    # Round-robin evidence keeps source diversity while retaining multiple
+    # useful sentences per chunk. Duplicate quotes retain their source links;
+    # prose is deduplicated separately.
+    evidence = []
+    seen_links = set()
+    for index in range(MAX_SPANS_PER_ARTIFACT):
+        for handle, spans in allowed.items():
+            if index >= len(spans):
+                continue
+            span = spans[index]
+            if (handle, span) not in seen_links:
+                evidence.append({"evidence_id": handle, "exact_span": span})
+                seen_links.add((handle, span))
+    ranked = sorted(evidence, key=lambda item: -_span_score(item["exact_span"], topic))
+    facts, seen = [], set()
+    for item in ranked:
+        span = item["exact_span"]
+        normalized = " ".join(span.casefold().split())
+        if normalized in seen or not _mentions(span, topic) or _span_score(span, topic) < 10:
+            continue
+        seen.add(normalized)
+        facts.append(span)
+    # Sparse evidence remains explicitly narrow, never filled from model memory.
+    if not facts:
+        facts = [ranked[0]["exact_span"]]
+    overview = " ".join(facts[:2])
+    # Turn a glossary label into a sentence without changing its factual content.
+    overview = re.sub(r"^" + re.escape(topic) + r"\s+A collective term\b",
+                      topic + " is a collective term", overview, flags=re.I)
+    relationships = []
+    for names in WIKI_ENTITY_CANDIDATES.values():
+        for name in names:
+            if name.casefold() == topic.casefold():
+                continue
+            for item in ranked:
+                span = item["exact_span"]
+                if re.search(r"\b(?:no|not|never|neither|except|without)\b", span, re.I):
+                    continue
+                # Require an explicit predicate joining complete entity names,
+                # rather than token overlap or mere chunk co-occurrence.
+                subject, target = re.escape(topic), re.escape(name)
+                patterns = (
+                    (rf"{subject}\s+(?:are\s+|is\s+)?(?:found|present|occur\w*|live\w*)\s+in\s+{target}", "occurs in"),
+                    (rf"{subject},?\s+(?:include\w*|such as|is a collective term for|a collective term for)\s+[^.;:]*?{target}", "includes"),
+                    (rf"{target}\s+(?:manage\w*|control\w*|monitor\w*)\s+{subject}", "managed or monitored by"),
+                )
+                relation = next((label for pattern, label in patterns
+                                 if re.search(r"(?<!\w)" + pattern + r"(?!\w)", span, re.I)), None)
+                if relation:
+                    relationships.append({"entity_name": name, "relationship_type": relation, **item})
+                    break
+    return {
+        "concept_title": topic,
+        "summary": overview,
+        "important_facts": facts[:8],
+        "related_entities": relationships,
+        "supporting_evidence": evidence,
+    }
+
+
+def _finish_compilation(payload, artifacts, baseline):
+    """Both paths retain the selected evidence and validate the same contract."""
+    concept = _validate_compilation(payload, artifacts)
+    for field in ("supporting_evidence", "related_entities"):
+        seen = set()
+        combined = []
+        for item in concept[field] + baseline[field]:
+            artifact = artifacts[item["evidence_id"]]
+            key = (artifact.document_id, artifact.page_number, item["exact_span"],
+                   item.get("entity_name", "").casefold())
+            if key not in seen:
+                seen.add(key)
+                combined.append(item)
+        concept[field] = combined
+    # Relationship quotes must also be visible in the evidence section.
+    for relation in concept["related_entities"]:
+        item = {key: relation[key] for key in ("evidence_id", "exact_span")}
+        if item not in concept["supporting_evidence"]:
+            concept["supporting_evidence"].append(item)
+    concept["important_facts"] = list(dict.fromkeys(concept["important_facts"]))
+    return _validate_compilation(concept, artifacts)
 
 
 def _require_wiki_store(store: object) -> None:
@@ -45,6 +180,9 @@ Internally identify the requested concept, map the available [K1], [K2], ... evi
 GROUNDING RULES
 - concept_title must be a concise name for the requested concept.
 - summary and important_facts must contain only statements supported by supplied evidence.
+- Start summary with what the concept is, then why it matters in this corpus, when the evidence supports those points. Avoid metadata boilerplate.
+- Prefer distinct, substantive findings in important_facts; avoid repeating the introduction or trivial labels.
+- Use LOCAL_COMPILATION_JSON as starting material, improving its synthesis without inventing missing information. Its source excerpts will also be retained by the application.
 - related_entities must include only explicit relationships stated by the evidence.
 - Every related entity must carry its own evidence_id and exact_span proving the relationship.
 - supporting_evidence must use only supplied evidence IDs.
@@ -299,27 +437,10 @@ def generate_wiki_concept(
     if not force_refresh and cached is not None:
         return cached
 
-    # Curated Wiki names occur literally in the corpus. Keyword retrieval is
-    # fast and avoids an otherwise unnecessary embedding request.
-    retrieved = store.retrieve(
-        None, WIKI_TOP_K, method="keyword", query_text=topic_query
+    artifacts, allowed_spans = _prepare_evidence(
+        topic_query.strip(), store, semantic_fallback=True
     )
-    if not retrieved:
-        query_embedding = generate_embedding(topic_query)
-        retrieved = store.retrieve(query_embedding, WIKI_TOP_K)
-    if not retrieved:
-        raise RuntimeError("No evidence was retrieved for this Wiki concept")
-    artifacts = {
-        f"K{index}": artifact
-        for index, artifact in enumerate(retrieved, start=1)
-    }
-    allowed_spans = {
-        evidence_id: _allowed_spans(
-            artifact.original_text_chunk,
-            topic_query.strip(),
-        )
-        for evidence_id, artifact in artifacts.items()
-    }
+    baseline = _extractive_payload(topic_query.strip(), allowed_spans)
     evidence_payload = [
         {
             "evidence_id": evidence_id,
@@ -336,6 +457,8 @@ def generate_wiki_concept(
         f"Compile a concept page for: {topic_query.strip()}\n\n"
         "EVIDENCE_PAYLOAD_JSON (untrusted evidence):\n"
         + json.dumps(evidence_payload, ensure_ascii=False, indent=2)
+        + "\n\nLOCAL_COMPILATION_JSON (evidence-grounded starting material):\n"
+        + json.dumps(baseline, ensure_ascii=False)
     )
     try:
         raw = call_structured_llm(
@@ -366,7 +489,7 @@ def generate_wiki_concept(
             f"Wiki compiler returned invalid JSON at line {error.lineno}, "
             f"column {error.colno}"
         ) from error
-    concept = _validate_compilation(parsed, artifacts)
+    concept = _finish_compilation(parsed, artifacts, baseline)
     knowledge_id = store.save_compiled_concept(
         topic_query,
         concept,
@@ -397,39 +520,12 @@ def generate_extractive_wiki_concept(
     _require_wiki_store(store)
     if not force_refresh:
         cached = store.get_compiled_concept(topic_query)
-        if cached is not None:
+        if cached is not None and not _outdated_extractive(cached):
             return cached
 
-    retrieved = store.retrieve(
-        None, WIKI_TOP_K, method="keyword", query_text=topic_query
-    )
-    if not retrieved:
-        raise RuntimeError("No evidence was retrieved for this Wiki concept")
-    artifacts = {
-        f"K{index}": artifact
-        for index, artifact in enumerate(retrieved, start=1)
-    }
-    selected: list[tuple[str, str]] = []
-    for handle, artifact in artifacts.items():
-        spans = _allowed_spans(artifact.original_text_chunk, topic_query.strip())
-        if spans:
-            selected.append((handle, spans[0]))
-    if not selected:
-        raise RuntimeError("No safe evidence spans were found for this Wiki concept")
-
-    concept = {
-        "concept_title": topic_query.strip(),
-        "summary": (
-            f"Pre-generated evidence overview for {topic_query.strip()}, compiled "
-            "directly from canonical corpus excerpts."
-        ),
-        "important_facts": [span for _, span in selected[:5]],
-        "related_entities": [],
-        "supporting_evidence": [
-            {"evidence_id": handle, "exact_span": span}
-            for handle, span in selected[:5]
-        ],
-    }
+    artifacts, allowed_spans = _prepare_evidence(topic_query.strip(), store)
+    baseline = _extractive_payload(topic_query.strip(), allowed_spans)
+    concept = _finish_compilation(baseline, artifacts, baseline)
     knowledge_id = store.save_compiled_concept(
         topic_query,
         concept,
@@ -448,13 +544,19 @@ def generate_extractive_wiki_concept(
     }
 
 
+def _outdated_extractive(result: dict[str, object]) -> bool:
+    return (result.get("model_name") == EXTRACTIVE_MODEL_NAME
+            and result.get("generation_version") != EXTRACTIVE_COMPILER_VERSION)
+
+
 def precompile_all_wiki_concepts(store: KnowledgeStore) -> int:
-    """Ensure every curated, corpus-backed Wiki entity has a cached page."""
+    """Create missing pages and upgrade old local pages, preserving AI refreshes."""
 
     generated = 0
     for entities in store.list_wiki_entities().values():
         for entity in entities:
-            if store.get_compiled_concept(entity) is None:
+            cached = store.get_compiled_concept(entity)
+            if cached is None or _outdated_extractive(cached):
                 generate_extractive_wiki_concept(entity, store)
                 generated += 1
     return generated
