@@ -10,10 +10,10 @@ import main
 from database import KnowledgeStore
 from test_chat_context import resolved
 from test_contextual_clarification import (
-    CLARIFICATION,
     METHOD_FOLLOWUP,
     THREAT_QUESTION,
     ambiguous_payload,
+    assert_inferred_threat_query,
     model_owned_threat_history,
     threat_history,
 )
@@ -54,41 +54,44 @@ def failed_payloads():
 
 
 @pytest.mark.parametrize("raw", failed_payloads())
-def test_invalid_output_preserves_reported_topic_without_search(monkeypatch, raw):
+def test_invalid_output_searches_known_threat_target_without_using_model_prose(monkeypatch, raw):
     monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: raw)
-    monkeypatch.setattr(main, "generate_embedding", lambda *a: pytest.fail("Unresolved methods were embedded"))
-    monkeypatch.setattr(main, "call_llm", lambda *a, **kw: pytest.fail("Unresolved methods reached synthesis"))
+    queries = []
+    monkeypatch.setattr(main, "generate_embedding", lambda query: queries.append(query) or [1., 0.])
+    monkeypatch.setattr(main, "call_llm", lambda *a, **kw: pytest.fail("Empty corpus reached synthesis"))
     with KnowledgeStore(":memory:") as store:
-        monkeypatch.setattr(store, "retrieve", lambda *a, **kw: pytest.fail("Unresolved methods reached retrieval"))
-        monkeypatch.setattr(store, "retrieve_document_matches", lambda *a, **kw: pytest.fail("Unresolved methods reached document search"))
         diagnostics = {}
         answer, preamble, sources = main.ask_chatbot_with_context(
             METHOD_FOLLOWUP, store, history=model_owned_threat_history(), diagnostics=diagnostics,
         )
-    assert answer == TARGETED_FALLBACK
+    assert "No relevant evidence" in answer + preamble
+    assert "Do you mean" not in answer
     assert "Please name the subject" not in answer
     assert "99%" not in answer + preamble and "DOC999" not in answer + preamble
     assert sources == []
     assert diagnostics["uses_history"] is True
-    assert diagnostics["needs_clarification"] is True
+    assert diagnostics["needs_clarification"] is False
     assert diagnostics["relation"] == "FOLLOW_UP"
-    assert diagnostics["method"] == "invalid_context"
-    assert diagnostics["retrieval_query"] == ""
-    assert diagnostics["clarification_question"] == TARGETED_FALLBACK
+    assert diagnostics["method"] == "context_inferred"
+    assert queries == [diagnostics["retrieval_query"]]
+    assert "measures addressing conservation threats" in queries[0]
+    assert "effective" in queries[0]
+    assert "99%" not in queries[0] and "DOC999" not in queries[0]
+    assert "invented treatment" not in queries[0].lower()
+    assert diagnostics["clarification_question"] == ""
     assert diagnostics["history_messages_used"] == 2
-    assert re.fullmatch(r"[a-z_]+", diagnostics["resolution_error"])
+    assert not diagnostics["resolution_error"] or re.fullmatch(r"[a-z_]+", diagnostics["resolution_error"])
     assert len(diagnostics["resolution_error"]) <= 80
 
 
-def test_valid_specific_ambiguity_keeps_existing_clarification(monkeypatch):
+def test_model_threat_method_ambiguity_uses_direct_inferred_search(monkeypatch):
     monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: ambiguous_payload())
     actual = context.resolve_query(METHOD_FOLLOWUP, model_owned_threat_history())
-    assert actual.method == "ambiguous"
-    assert actual.clarification_question == CLARIFICATION
+    assert_inferred_threat_query(actual)
     assert actual.diagnostics()["resolution_error"] == ""
 
 
-def test_fallback_does_not_assert_real_methods_were_absent(monkeypatch):
+def test_malformed_rewrite_still_searches_for_evidence_without_claiming_methods_were_absent(monkeypatch):
     turns = threat_history()
     turns[-1]["content"] = (
         "The reports discuss conservation threats and methods to address them: "
@@ -96,19 +99,19 @@ def test_fallback_does_not_assert_real_methods_were_absent(monkeypatch):
     )
     monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: "not JSON")
     actual = context.resolve_query(METHOD_FOLLOWUP, turns)
-    assert actual.clarification_question == TARGETED_FALLBACK
-    assert "rather than control methods" not in actual.clarification_question
-    assert "did not identify" not in actual.clarification_question
+    assert_inferred_threat_query(actual)
+    assert "rather than control methods" not in actual.standalone_query
+    assert "did not identify" not in actual.standalone_query
 
 
-def test_invalid_output_fallback_retains_topic_for_next_reply(monkeypatch):
+def test_inferred_query_retains_topic_for_subsequent_followup(monkeypatch):
     turns = model_owned_threat_history()
     monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: "not JSON")
-    failed = context.resolve_query(METHOD_FOLLOWUP, turns)
+    inferred = context.resolve_query(METHOD_FOLLOWUP, turns)
     turns.extend([
         {"role": "user", "content": METHOD_FOLLOWUP},
-        {"role": "assistant", "content": failed.clarification_question,
-         "context": failed.diagnostics()},
+        {"role": "assistant", "content": "The retrieved report provides sediment reduction data for riparian restoration.",
+         "context": inferred.diagnostics()},
     ])
     query = "Provide quantitative data on the effectiveness of measures addressing conservation threats."
 
@@ -117,8 +120,9 @@ def test_invalid_output_fallback_retains_topic_for_next_reply(monkeypatch):
         assert len(recent) == 4
         assert recent[0]["content"] == THREAT_QUESTION
         assert recent[2]["content"] == METHOD_FOLLOWUP
-        assert recent[-1]["resolved_context"]["needs_clarification"] is True
-        assert recent[-1]["resolved_context"]["clarification_question"] == TARGETED_FALLBACK
+        assert recent[-1]["resolved_context"]["needs_clarification"] is False
+        assert recent[-1]["resolved_context"]["clarification_question"] == ""
+        assert recent[-1]["resolved_context"]["active_subject"] == "conservation threats"
         return resolved(query, "conservation threats")
 
     monkeypatch.setattr(context, "call_structured_llm", rewrite)
@@ -127,6 +131,30 @@ def test_invalid_output_fallback_retains_topic_for_next_reply(monkeypatch):
     assert actual.standalone_query == query
     assert actual.active_subject == "conservation threats"
     assert actual.diagnostics()["history_messages_used"] == 4
+
+
+def test_provider_failure_still_uses_known_threat_search(monkeypatch):
+    def failed_provider(*args, **kwargs):
+        raise RuntimeError("provider failed " + INJECTED_CLAIM)
+
+    monkeypatch.setattr(context, "call_structured_llm", failed_provider)
+    actual = context.resolve_query(METHOD_FOLLOWUP, model_owned_threat_history())
+    query = assert_inferred_threat_query(actual)
+    assert "99%" not in query and "DOC999" not in query
+    assert actual.resolution_error == "provider_failure"
+
+
+@pytest.mark.parametrize("question,facet", [
+    ("What is the cost of those methods?", "cost"),
+    ("Compare those approaches and their effectiveness.", "Compare"),
+])
+def test_inferred_target_preserves_the_requested_facet(monkeypatch, question, facet):
+    monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: pytest.fail("Exact threat-only list called contextualizer"))
+    actual = context.resolve_query(question, threat_history())
+    assert actual.method == "context_inferred"
+    assert not actual.needs_clarification
+    assert facet in actual.standalone_query
+    assert "measures addressing conservation threats" in actual.standalone_query
 
 
 def test_explicit_new_topic_bypasses_old_fallback(monkeypatch):

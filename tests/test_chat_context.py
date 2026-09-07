@@ -289,7 +289,7 @@ def test_streamlit_app_runs_three_turn_workflow_and_reset_offline(store, monkeyp
     from streamlit.testing.v1 import AppTest
 
     st.cache_resource.clear()
-    monkeypatch.setattr(threads, "archive_component", lambda **kwargs: {"status": "loaded", "archive": None, "revision": ""})
+    monkeypatch.setattr(threads, "archive_component", lambda **kwargs: {"status": "ready", "page_id": "test-page"})
     monkeypatch.setattr(database, "KnowledgeStore", lambda *args, **kwargs: store)
     monkeypatch.setattr(database, "prepare_runtime_database", lambda *args: Path("unused.db"))
     monkeypatch.setattr(store, "upsert_document_sources", lambda *args: None)

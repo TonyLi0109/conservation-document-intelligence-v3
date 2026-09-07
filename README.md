@@ -138,14 +138,18 @@ the resolved query and active subject alongside each assistant response. Only
 the most recent six messages are considered; conversation text is intent
 context, never evidence. Explicit new topics override prior context.
 
-Use **New conversation** to create a separate thread while preserving previous chats.
-Use the **Conversation** selector to reopen and continue a thread. Messages, context,
-and canonical source references persist in this browser across refreshes; this is
-not account-based or cross-device storage. Independent
-questions have no contextualizer call. Ambiguous follow-ups make one bounded
-structured request using the selected model, followed by the existing grounded
-answer pipeline. If a reference cannot be safely resolved, the app asks for
-clarification rather than searching a generic pronoun-only question.
+Use **New conversation** to create a separate thread within the current page.
+Use the **Conversation** selector to return to another thread before refreshing.
+**Refreshing the website clears all conversation history and starts an empty chat.**
+Old browser archives are removed; messages are no longer stored in localStorage.
+
+If an earlier answer lists conservation threats and the user asks how effective
+"these methods" are, the chatbot directly searches for measures addressing those
+threats and their measured outcomes. It cites available corpus evidence and
+acknowledges missing data instead of asking the user to choose an interpretation.
+Recognized independent questions add no contextualizer call; other follow-ups use
+one bounded request when needed. Unresolvable references can still require
+clarification, and provider failures cannot supply invented evidence.
 
 See [multi-turn implementation and verification](CHAT_CONTEXT.md) for details,
 limitations, tests and the optional backend diagnostics interface.

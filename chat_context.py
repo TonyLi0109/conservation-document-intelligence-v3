@@ -17,7 +17,7 @@ from api_clients import call_structured_llm
 MAX_HISTORY_MESSAGES = 6
 MAX_MESSAGE_CHARACTERS = 1800
 MAX_QUERY_CHARACTERS = 2400
-CONTEXT_VERSION = "v3.5.2-context"
+CONTEXT_VERSION = "v3.6-context"
 TOPIC_ALIASES = {
     "hydrilla": ("hydrilla",),
     "Asian longhorned beetle": ("Asian longhorned beetle",),
@@ -105,10 +105,12 @@ Set clarification_kind to THREATS_NOT_METHODS when threats have been mistaken
 for interventions, MISSING_METHODS when no actual methods have been identified,
 or AMBIGUOUS_REFERENCE for other unclear referents. The application supplies the
 clarification wording; do not generate an answer, explanation or citations.
-For example, if the previous answer only lists conservation threats and the user
-asks how effective "these methods" are, threats are not methods. Ask whether they
-want data on the threats' impacts or on the effectiveness of measures addressing
-them. Do not invent measures or silently reinterpret the question as impacts.
+If the previous answer lists conservation threats and the user asks how effective
+"these methods" are, infer that they want effectiveness data for measures addressing
+those threats. Produce a standalone question to retrieve such measures and their
+outcomes directly; do not ask the user to choose between impacts and effectiveness.
+Keep the threat labels as search intent. Do not invent measures or outcome data,
+and do not reinterpret the question as impacts of the threats themselves.
 If the previous answer does list actual methods, resolve them normally.
 When the user answers a pending clarification, combine that choice with the
 original request (including requested data) and the relevant earlier topic.
@@ -191,28 +193,53 @@ def _recent_history(history: Sequence[Mapping[str, object]]) -> list[dict[str, o
 
 def _invalid_context(question: str, recent: list[dict[str, object]], reason: str) -> ResolvedQuery:
     """A failed rewrite must still acknowledge the user's available context."""
+    inferred = _threat_management_query(question, recent, reason=reason)
+    if inferred is not None:
+        return inferred
     user_questions = [str(item["content"]) for item in recent if item["role"] == "user"]
     subject = ""
     if any(_contains(item, "conservation threats") for item in user_questions):
         subject = "conservation threats"
-    if subject and re.search(r"\b(?:these|those)\s+(?:methods|approaches|measures)\b", question, re.I):
-        clarification = (
-            "We were discussing conservation threats. Do you mean quantitative data on measures "
-            "addressing those threats, or data on their impacts?"
-        )
-    else:
-        # Quote only user intent, never generated queries/claims. Escape Markdown.
-        anchor = next((item for item in user_questions if not REFERENCE_PATTERN.search(item)),
-                      user_questions[0] if user_questions else "")
-        anchor = re.sub(r"([\\`*_{}\[\]()<>#+.!|~-])", r"\\\1", " ".join(anchor.split())[:240])
-        clarification = (f'Earlier you asked: "{anchor}". ' if anchor else "") + (
-            "I couldn't confidently connect this follow-up to a specific reference. "
-            "Please name the method, option, or report within that discussion that you mean."
-        )
+    # Quote only user intent, never generated queries/claims. Escape Markdown.
+    anchor = next((item for item in user_questions if not REFERENCE_PATTERN.search(item)),
+                  user_questions[0] if user_questions else "")
+    anchor = re.sub(r"([\\`*_{}\[\]()<>#+.!|~-])", r"\\\1", " ".join(anchor.split())[:240])
+    clarification = (f'Earlier you asked: "{anchor}". ' if anchor else "") + (
+        "I couldn't confidently connect this follow-up to a specific reference. "
+        "Please name the method, option, or report within that discussion that you mean."
+    )
     return ResolvedQuery(question, "", active_subject=subject, uses_history=True,
                          needs_clarification=True, method="invalid_context", relation="FOLLOW_UP",
                          clarification_question=clarification, resolution_error=reason,
                          history_messages_used=len(recent))
+
+
+THREAT_LABELS = ("land and sea use change", "direct exploitation of organisms",
+                 "climate change", "pollution", "invasive alien species")
+
+
+def _threat_management_query(question: str, recent: list[dict[str, object]],
+                             *, reason: str = "") -> ResolvedQuery | None:
+    """Infer the requested intervention search, never intervention facts or numbers."""
+    if not re.search(r"\b(?:these|those)\s+(?:methods|approaches|measures)\b", question, re.I):
+        return None
+    intent = " ".join(str(item["content"]) for item in recent if item["role"] == "user")
+    saved = " ".join(str(item.get("resolved_context", {}).get("active_subject", "")) for item in recent)
+    if not _contains(intent + " " + saved, "conservation threats"):
+        return None
+    replies = [str(item["content"]) for item in recent if item["role"] == "assistant"
+               and not item.get("resolved_context", {}).get("needs_clarification")]
+    listed = [label for label in THREAT_LABELS if replies and _contains(replies[-1], label)]
+    target = "measures addressing conservation threats"
+    if listed:
+        target += " (" + "; ".join(listed) + ")"
+    # Retain the user's requested facet (effectiveness, cost, comparison, etc.).
+    query = re.sub(r"\b(?:these|those)\s+(?:methods|approaches|measures)\b", target, question, flags=re.I)
+    query += ". Identify relevant measures and report the requested evidence from the corpus, noting missing data."
+    return ResolvedQuery(question, query, active_subject="conservation threats", uses_history=True,
+                         method="context_inferred", relation="FOLLOW_UP",
+                         selected_context="Measures addressing the previously discussed conservation threats",
+                         resolution_error=reason, history_messages_used=len(recent))
 
 
 def _obvious_threat_method_mismatch(question: str, recent: list[dict[str, object]]) -> bool:
@@ -231,10 +258,8 @@ def _obvious_threat_method_mismatch(question: str, recent: list[dict[str, object
     remainder = match[1]
     # Require the whole answer to consist of known threat labels and separators.
     # Any intervention description or second sentence forces normal resolution.
-    labels = ("land and sea use change", "direct exploitation of organisms",
-              "climate change", "pollution", "invasive alien species")
     found = 0
-    for label in labels:
+    for label in THREAT_LABELS:
         remainder, count = re.subn(r"\b" + re.escape(label) + r"\b", "", remainder, flags=re.I)
         found += count
     remainder = re.sub(r"\b(?:and|or)\b|[,;\s]", "", remainder, flags=re.I)
@@ -262,16 +287,18 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
         return ResolvedQuery(question, question, subject)
 
     if _obvious_threat_method_mismatch(question, recent):
-        return ResolvedQuery(question, "", active_subject="conservation threats", uses_history=True,
-                             needs_clarification=True, method="referent_type_mismatch", relation="FOLLOW_UP",
-                             clarification_question=CLARIFICATION_MESSAGES["THREATS_NOT_METHODS"],
-                             history_messages_used=len(recent))
+        inferred = _threat_management_query(question, recent)
+        if inferred is not None:
+            return inferred
 
     data = {"current_question": question, "recent_messages": recent}
     try:
         raw = call_structured_llm(CONTEXT_PROMPT, json.dumps(data, ensure_ascii=False),
                                   CONTEXT_SCHEMA, model=model, max_output_tokens=700)
     except Exception:
+        inferred = _threat_management_query(question, recent, reason="provider_failure")
+        if inferred is not None:
+            return inferred
         # A provider failure is not evidence that the user's wording is ambiguous.
         return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
                              method="resolution_failed", relation="FOLLOW_UP",
@@ -294,6 +321,9 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
         if not isinstance(query, str) or not isinstance(subject, str):
             raise ValueError("Invalid context text")
         if payload["needs_clarification"]:
+            inferred = _threat_management_query(question, recent)
+            if inferred is not None:
+                return inferred
             if clarification_kind == "NONE":
                 raise ValueError("Missing clarification kind")
             return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,

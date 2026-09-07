@@ -135,7 +135,37 @@ def test_malformed_archive_fails_without_overwriting_input(store):
     assert payload == {"version": 99, "conversations": {}}
 
 
-def test_existing_session_history_is_migrated_without_erasing_messages(store, monkeypatch):
+def test_same_page_preserves_threads_but_refresh_discards_all_history():
+    state = {}
+    book = threads.synchronize_page_session(state, "first-page")
+    first_id = book["active_id"]
+    for message in history():
+        threads.append_message(book, first_id, message)
+    second_id = threads.new_conversation(book)
+    threads.append_message(book, second_id, {"role": "user", "content": "Tell me about zebra mussels."})
+    assert threads.synchronize_page_session(state, "first-page") is book
+    assert len(book["conversations"]) == 2
+    assert len(book["conversations"][first_id]["messages"]) == 2
+
+    fresh = threads.synchronize_page_session(state, "reloaded-page")
+    assert fresh is not book
+    assert len(fresh["conversations"]) == 1
+    assert first_id not in fresh["conversations"] and second_id not in fresh["conversations"]
+    assert state["v3_active_conversation"] == fresh["active_id"]
+    assert state["v3_chat_messages"] is fresh["conversations"][fresh["active_id"]]["messages"]
+    assert not state["v3_chat_messages"]
+
+
+def test_separate_page_sessions_do_not_share_messages():
+    first_state, second_state = {}, {}
+    first = threads.synchronize_page_session(first_state, "first-page")
+    threads.append_message(first, first["active_id"], history()[0])
+    second = threads.synchronize_page_session(second_state, "second-page")
+    assert not second["conversations"][second["active_id"]]["messages"]
+    assert first_state["v3_chat_messages"] == first["conversations"][first["active_id"]]["messages"]
+
+
+def test_app_discards_legacy_history_and_resets_when_page_identity_changes(store, monkeypatch):
     from pathlib import Path
     import database
     import streamlit as st
@@ -144,15 +174,40 @@ def test_existing_session_history_is_migrated_without_erasing_messages(store, mo
     monkeypatch.setattr(database, "KnowledgeStore", lambda *a, **kw: store)
     monkeypatch.setattr(database, "prepare_runtime_database", lambda *a: Path("unused.db"))
     monkeypatch.setattr(store, "upsert_document_sources", lambda *a: None)
-    monkeypatch.setattr(threads, "archive_component", lambda **kw: {"status": "loaded", "archive": None, "revision": ""})
+    page = {"status": "ready", "page_id": "first-page"}
+    calls = []
+    def component(**kwargs):
+        calls.append(kwargs)
+        return page
+    monkeypatch.setattr(threads, "archive_component", component)
+    monkeypatch.setattr(threads, "restore_book", lambda *a: pytest.fail("Browser history must not be restored"))
+    monkeypatch.setattr(threads, "export_book", lambda *a: pytest.fail("Chat content must not be sent to browser storage"))
+    monkeypatch.setattr(main, "ask_chatbot_with_context", lambda *a, **kw: ("Answer in this page session.", "", []))
     try:
         app = AppTest.from_file(str(Path(main.__file__).with_name("app.py")), default_timeout=15)
         app.session_state["v3_chat_messages"] = history()
+        app.session_state["v3_archive_revision"] = "legacy-revision"
+        app.session_state["v3_archive_disabled"] = True
         app.run()
         assert not app.exception
         book = app.session_state["v3_chat_book"]
-        restored = book["conversations"][book["active_id"]]
-        assert [m["content"] for m in restored["messages"]] == [m["content"] for m in history()]
-        assert restored["title"].startswith("What are the effective methods")
+        assert not book["conversations"][book["active_id"]]["messages"]
+        assert "v3_archive_revision" not in app.session_state
+        assert "v3_archive_disabled" not in app.session_state
+        app.chat_input[0].set_value(history()[0]["content"]).run()
+        assert not app.exception
+        assert len(app.chat_message) == 2
+        app.button(key="v3_new_conversation").click().run()
+        assert not app.exception
+        assert len(app.session_state["v3_chat_book"]["conversations"]) == 2
+        page["page_id"] = "reloaded-page"
+        app.run()
+        assert not app.exception
+        fresh = app.session_state["v3_chat_book"]
+        assert len(fresh["conversations"]) == 1 and fresh["active_id"] not in book["conversations"]
+        assert not app.chat_message
+        assert not app.session_state["v3_chat_messages"]
+        assert all("snapshot" not in call and "expected_revision" not in call for call in calls)
+        assert all(call["runtime_version"] for call in calls)
     finally:
         st.cache_resource.clear()

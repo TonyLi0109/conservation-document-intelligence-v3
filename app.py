@@ -185,30 +185,14 @@ def render_corpus_tab(store: KnowledgeStore) -> None:
 
 
 def prepare_conversations(store: KnowledgeStore) -> dict | None:
-    """Hydrate once, then save only this browser's selected conversation book."""
-    if "v3_chat_book" not in st.session_state:
-        response = chat_history.archive_component(snapshot=None, expected_revision="", key="v3_chat_archive",
-                                                  runtime_version=CONTEXT_VERSION, default=None)
-        if response is None:
-            st.caption("Loading saved conversations…")
-            return None
-        try:
-            if response.get("status") == "storage_error":
-                raise ValueError("Browser storage is unavailable")
-            book = chat_history.restore_book(response.get("archive"), store)
-            legacy = st.session_state.get("v3_chat_messages", [])
-            if response.get("archive") is None and legacy:
-                for message in legacy:
-                    chat_history.append_message(book, book["active_id"], message)
-        except (ValueError, TypeError, KeyError):
-            book = chat_history.empty_book()
-            st.session_state.v3_archive_disabled = True
-        st.session_state.v3_chat_book = book
-        st.session_state.v3_archive_revision = response.get("revision", "")
-        st.session_state.v3_active_conversation = book["active_id"]
-        st.rerun()
-
-    book = st.session_state.v3_chat_book
+    """Retain current-page threads across reruns, and clear them on refresh."""
+    response = chat_history.archive_component(
+        runtime_version=CONTEXT_VERSION, key="v3_chat_archive", default=None,
+    )
+    if not response or response.get("status") != "ready" or not response.get("page_id"):
+        st.caption("Starting a new chat session...")
+        return None
+    book = chat_history.synchronize_page_session(st.session_state, response["page_id"])
     if st.button("New conversation", key="v3_new_conversation"):
         st.session_state.v3_active_conversation = chat_history.new_conversation(book)
     selected = st.selectbox(
@@ -219,20 +203,7 @@ def prepare_conversations(store: KnowledgeStore) -> dict | None:
     book["active_id"] = selected
     # Preserve the existing renderer/backend message contract as a thread-local alias.
     st.session_state.v3_chat_messages = book["conversations"][selected]["messages"]
-    disabled = st.session_state.get("v3_archive_disabled", False)
-    response = chat_history.archive_component(
-        runtime_version=CONTEXT_VERSION,
-        snapshot=None if disabled else chat_history.export_book(book),
-        expected_revision=st.session_state.get("v3_archive_revision", ""),
-        key="v3_chat_archive", default=None,
-    )
-    if response and response.get("status") == "saved":
-        st.session_state.v3_archive_revision = response["revision"]
-    if disabled or (response and response.get("status") == "storage_error"):
-        st.warning("Browser history could not be saved or loaded. This session is still available; the previous saved archive has not been replaced.")
-    elif response and response.get("status") == "conflict":
-        st.warning("History changed in another tab. This tab's latest changes are not saved. Keep this tab open to retain them; reload only after preserving any new messages.")
-    st.caption("Conversations are saved in this browser. New conversation keeps your previous chats.")
+    st.caption("Conversations last while this page is open. Refreshing starts a new empty chat.")
     return book
 
 

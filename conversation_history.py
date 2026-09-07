@@ -1,4 +1,4 @@
-"""Browser-owned conversation archives; no shared visitor history on the server."""
+"""Page-session conversations; browser refresh starts a new empty history."""
 
 from __future__ import annotations
 
@@ -14,6 +14,20 @@ import streamlit.components.v1 as components
 archive_component = components.declare_component(
     "v3_conversation_archive", path=str(Path(__file__).parent / "components" / "conversation_archive")
 )
+
+
+def synchronize_page_session(state, page_id: str) -> dict:
+    """Keep reruns in one page together, and discard history after a page reload."""
+    if state.get("v3_chat_page_id") != page_id or "v3_chat_book" not in state:
+        book = empty_book()
+        state["v3_chat_page_id"] = page_id
+        state["v3_chat_book"] = book
+        state["v3_active_conversation"] = book["active_id"]
+        state["v3_chat_messages"] = book["conversations"][book["active_id"]]["messages"]
+        # Remove flags left by the previous browser archive implementation.
+        state.pop("v3_archive_revision", None)
+        state.pop("v3_archive_disabled", None)
+    return state["v3_chat_book"]
 
 
 def now() -> str:
