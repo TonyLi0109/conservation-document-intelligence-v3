@@ -39,6 +39,16 @@ def threat_history():
     ]
 
 
+def model_owned_threat_history():
+    """An explanatory sentence makes intent classification require the model."""
+    turns = threat_history()
+    turns[-1]["content"] = THREAT_ANSWER.replace(
+        "**Unsupported facets**",
+        "The documents also discuss the effects of these drivers on biodiversity.\n\n**Unsupported facets**",
+    )
+    return turns
+
+
 def ambiguous_payload():
     return json.dumps({
         "standalone_query": "",
@@ -74,16 +84,7 @@ def pending_history(*, legacy=False):
 
 
 def test_reported_threats_to_methods_mismatch_gets_contextual_clarification(monkeypatch):
-    def clarify(system, prompt, schema, **kwargs):
-        data = json.loads(prompt)
-        assert data["current_question"] == METHOD_FOLLOWUP
-        assert data["recent_messages"][0]["content"] == THREAT_QUESTION
-        assert data["recent_messages"][1]["content"] == THREAT_ANSWER
-        assert "clarification_kind" in schema["schema"]["required"]
-        assert "clarification_question" not in schema["schema"]["properties"]
-        return ambiguous_payload()
-
-    monkeypatch.setattr(context, "call_structured_llm", clarify)
+    monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: pytest.fail("Exact threat-only list called contextualizer"))
     monkeypatch.setattr(main, "generate_embedding", lambda *a: pytest.fail("Ambiguous methods were embedded"))
     monkeypatch.setattr(main, "call_llm", lambda *a, **kw: pytest.fail("Ambiguous methods reached synthesis"))
     with KnowledgeStore(":memory:") as store:
@@ -101,6 +102,75 @@ def test_reported_threats_to_methods_mismatch_gets_contextual_clarification(monk
     assert diagnostics["relation"] == "FOLLOW_UP"
     assert diagnostics["retrieval_query"] == ""
     assert diagnostics["clarification_question"] == CLARIFICATION
+    assert diagnostics["method"] == "referent_type_mismatch"
+    assert diagnostics["history_messages_used"] == 2
+
+
+def test_less_obvious_threat_answer_uses_model_classification(monkeypatch):
+    turns = model_owned_threat_history()
+    calls = []
+
+    def clarify(system, prompt, schema, **kwargs):
+        data = json.loads(prompt)
+        calls.append(data)
+        assert data["current_question"] == METHOD_FOLLOWUP
+        assert data["recent_messages"][0]["content"] == THREAT_QUESTION
+        assert data["recent_messages"][1]["content"] == turns[-1]["content"]
+        assert "clarification_kind" in schema["schema"]["required"]
+        assert "clarification_question" not in schema["schema"]["properties"]
+        return ambiguous_payload()
+
+    monkeypatch.setattr(context, "call_structured_llm", clarify)
+    actual = context.resolve_query(METHOD_FOLLOWUP, turns)
+    assert len(calls) == 1
+    assert actual.method == "ambiguous"
+    assert actual.clarification_question == CLARIFICATION
+
+
+@pytest.mark.parametrize("answer", [
+    THREAT_ANSWER.replace(
+        "**Unsupported facets**",
+        "Measures addressing these threats include riparian restoration and invasive-species removal.\n\n**Unsupported facets**",
+    ),
+    "The main conservation threats include climate change and pollution; methods include riparian restoration.",
+    "The main conservation threats are climate change and pollution (managed through riparian restoration).",
+    "The main conservation threats include climate change, pollution, and invasive alien species.\n"
+    "- Riparian restoration is one management approach.",
+])
+def test_threat_answer_with_actual_methods_bypasses_local_mismatch_guard(monkeypatch, answer):
+    turns = threat_history()
+    turns[-1]["content"] = answer
+    calls = []
+    query = "Provide quantitative effectiveness data on riparian restoration and invasive-species removal addressing conservation threats."
+
+    def rewrite(*args, **kwargs):
+        calls.append(True)
+        return resolved(query, "conservation threats")
+
+    monkeypatch.setattr(context, "call_structured_llm", rewrite)
+    actual = context.resolve_query(METHOD_FOLLOWUP, turns)
+    assert calls == [True]
+    assert not actual.needs_clarification
+    assert actual.standalone_query == query
+    assert actual.method == "contextualized"
+
+
+def test_unknown_list_item_is_not_assumed_to_be_a_threat(monkeypatch):
+    turns = threat_history()
+    turns[-1]["content"] = (
+        "The main conservation threats include climate change, pollution, "
+        "and an unidentified management practice."
+    )
+    calls = []
+
+    def clarify(*args, **kwargs):
+        calls.append(True)
+        return ambiguous_payload()
+
+    monkeypatch.setattr(context, "call_structured_llm", clarify)
+    actual = context.resolve_query(METHOD_FOLLOWUP, turns)
+    assert calls == [True]
+    assert actual.method == "ambiguous"
 
 
 @pytest.mark.parametrize("legacy", [False, True])
@@ -220,7 +290,7 @@ def test_invalid_clarification_kind_does_not_reach_search(monkeypatch, bad_kind)
     payload = json.loads(ambiguous_payload())
     payload["clarification_kind"] = bad_kind
     monkeypatch.setattr(context, "call_structured_llm", lambda *a, **kw: json.dumps(payload))
-    actual = context.resolve_query(METHOD_FOLLOWUP, threat_history())
+    actual = context.resolve_query(METHOD_FOLLOWUP, model_owned_threat_history())
     assert actual.needs_clarification
     assert actual.method == "invalid_context"
     assert actual.standalone_query == ""
@@ -234,7 +304,7 @@ def test_model_cannot_add_a_free_text_answer_through_clarification(monkeypatch):
     with KnowledgeStore(":memory:") as store:
         diagnostics = {}
         answer, preamble, sources = main.ask_chatbot_with_context(
-            METHOD_FOLLOWUP, store, history=threat_history(), diagnostics=diagnostics,
+            METHOD_FOLLOWUP, store, history=model_owned_threat_history(), diagnostics=diagnostics,
         )
     assert diagnostics["method"] == "invalid_context"
     assert "90%" not in answer + preamble and "DOC999" not in answer + preamble
@@ -250,7 +320,7 @@ def test_selected_context_cannot_be_rendered_as_an_unvalidated_answer(monkeypatc
     monkeypatch.setattr(main, "call_llm", lambda *a, **kw: pytest.fail("Clarification reached synthesis"))
     with KnowledgeStore(":memory:") as store:
         answer, preamble, sources = main.ask_chatbot_with_context(
-            METHOD_FOLLOWUP, store, history=threat_history(),
+            METHOD_FOLLOWUP, store, history=model_owned_threat_history(),
         )
     assert answer == CLARIFICATION
     assert "90%" not in answer + preamble and "DOC999" not in answer + preamble

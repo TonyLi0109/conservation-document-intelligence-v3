@@ -1,4 +1,4 @@
-# Release v3.5.1: rebuild for contextual clarification and recovery.
+# Release v3.5.2: rebuild for context-aware fallback and deterministic referent checks.
 openai==2.54.0
 numpy>=1.26.0
 pypdf==6.16.1

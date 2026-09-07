@@ -9,7 +9,7 @@ import tempfile
 import streamlit as st
 
 from config import CHAT_MODEL_OPTIONS, SETTINGS
-from chat_context import MAX_HISTORY_MESSAGES
+from chat_context import CONTEXT_VERSION, MAX_HISTORY_MESSAGES
 import conversation_history as chat_history
 from database import KnowledgeStore, prepare_runtime_database
 from evaluation import run_evaluation
@@ -187,7 +187,8 @@ def render_corpus_tab(store: KnowledgeStore) -> None:
 def prepare_conversations(store: KnowledgeStore) -> dict | None:
     """Hydrate once, then save only this browser's selected conversation book."""
     if "v3_chat_book" not in st.session_state:
-        response = chat_history.archive_component(snapshot=None, expected_revision="", key="v3_chat_archive", default=None)
+        response = chat_history.archive_component(snapshot=None, expected_revision="", key="v3_chat_archive",
+                                                  runtime_version=CONTEXT_VERSION, default=None)
         if response is None:
             st.caption("Loading saved conversations…")
             return None
@@ -220,6 +221,7 @@ def prepare_conversations(store: KnowledgeStore) -> dict | None:
     st.session_state.v3_chat_messages = book["conversations"][selected]["messages"]
     disabled = st.session_state.get("v3_archive_disabled", False)
     response = chat_history.archive_component(
+        runtime_version=CONTEXT_VERSION,
         snapshot=None if disabled else chat_history.export_book(book),
         expected_revision=st.session_state.get("v3_archive_revision", ""),
         key="v3_chat_archive", default=None,

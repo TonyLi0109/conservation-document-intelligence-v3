@@ -17,7 +17,7 @@ from api_clients import call_structured_llm
 MAX_HISTORY_MESSAGES = 6
 MAX_MESSAGE_CHARACTERS = 1800
 MAX_QUERY_CHARACTERS = 2400
-CONTEXT_VERSION = "v3.5.1-context"
+CONTEXT_VERSION = "v3.5.2-context"
 TOPIC_ALIASES = {
     "hydrilla": ("hydrilla",),
     "Asian longhorned beetle": ("Asian longhorned beetle",),
@@ -144,6 +144,8 @@ class ResolvedQuery:
     relation: str = "NEW_TOPIC"
     selected_context: str = ""
     clarification_question: str = ""
+    resolution_error: str = ""
+    history_messages_used: int = 0
 
     def diagnostics(self) -> dict[str, object]:
         return {**asdict(self), "context_version": CONTEXT_VERSION}
@@ -187,6 +189,58 @@ def _recent_history(history: Sequence[Mapping[str, object]]) -> list[dict[str, o
     return recent
 
 
+def _invalid_context(question: str, recent: list[dict[str, object]], reason: str) -> ResolvedQuery:
+    """A failed rewrite must still acknowledge the user's available context."""
+    user_questions = [str(item["content"]) for item in recent if item["role"] == "user"]
+    subject = ""
+    if any(_contains(item, "conservation threats") for item in user_questions):
+        subject = "conservation threats"
+    if subject and re.search(r"\b(?:these|those)\s+(?:methods|approaches|measures)\b", question, re.I):
+        clarification = (
+            "We were discussing conservation threats. Do you mean quantitative data on measures "
+            "addressing those threats, or data on their impacts?"
+        )
+    else:
+        # Quote only user intent, never generated queries/claims. Escape Markdown.
+        anchor = next((item for item in user_questions if not REFERENCE_PATTERN.search(item)),
+                      user_questions[0] if user_questions else "")
+        anchor = re.sub(r"([\\`*_{}\[\]()<>#+.!|~-])", r"\\\1", " ".join(anchor.split())[:240])
+        clarification = (f'Earlier you asked: "{anchor}". ' if anchor else "") + (
+            "I couldn't confidently connect this follow-up to a specific reference. "
+            "Please name the method, option, or report within that discussion that you mean."
+        )
+    return ResolvedQuery(question, "", active_subject=subject, uses_history=True,
+                         needs_clarification=True, method="invalid_context", relation="FOLLOW_UP",
+                         clarification_question=clarification, resolution_error=reason,
+                         history_messages_used=len(recent))
+
+
+def _obvious_threat_method_mismatch(question: str, recent: list[dict[str, object]]) -> bool:
+    """Recognize a simple threat-only list; mixed/unknown content stays model-owned."""
+    if not re.search(r"\b(?:these|those)\s+(?:methods|approaches|measures)\b", question, re.I):
+        return False
+    replies = [item for item in recent if item["role"] == "assistant"
+               and not item.get("resolved_context", {}).get("needs_clarification")]
+    if not replies:
+        return False
+    body = str(replies[-1]["content"]).split("**Unsupported facets**", 1)[0]
+    body = re.sub(r"\[DOC\d+[^\]]*\]", "", body).strip().rstrip(".").strip()
+    match = re.fullmatch(r"[-*]?\s*(?:the\s+)?(?:main\s+)?conservation threats\s+(?:include|are)\s+(?:direct drivers such as\s+)?(.+)", body, re.I)
+    if not match:
+        return False
+    remainder = match[1]
+    # Require the whole answer to consist of known threat labels and separators.
+    # Any intervention description or second sentence forces normal resolution.
+    labels = ("land and sea use change", "direct exploitation of organisms",
+              "climate change", "pollution", "invasive alien species")
+    found = 0
+    for label in labels:
+        remainder, count = re.subn(r"\b" + re.escape(label) + r"\b", "", remainder, flags=re.I)
+        found += count
+    remainder = re.sub(r"\b(?:and|or)\b|[,;\s]", "", remainder, flags=re.I)
+    return found >= 2 and not remainder
+
+
 def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None = None,
                   *, model: str | None = None) -> ResolvedQuery:
     """Resolve before embedding/search, with no model call for independent turns."""
@@ -207,6 +261,12 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
     if not recent or ((explicit_subject or SWITCH_PATTERN.search(question)) and not has_reference):
         return ResolvedQuery(question, question, subject)
 
+    if _obvious_threat_method_mismatch(question, recent):
+        return ResolvedQuery(question, "", active_subject="conservation threats", uses_history=True,
+                             needs_clarification=True, method="referent_type_mismatch", relation="FOLLOW_UP",
+                             clarification_question=CLARIFICATION_MESSAGES["THREATS_NOT_METHODS"],
+                             history_messages_used=len(recent))
+
     data = {"current_question": question, "recent_messages": recent}
     try:
         raw = call_structured_llm(CONTEXT_PROMPT, json.dumps(data, ensure_ascii=False),
@@ -215,7 +275,8 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
         # A provider failure is not evidence that the user's wording is ambiguous.
         return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
                              method="resolution_failed", relation="FOLLOW_UP",
-                             clarification_question="I couldn't process this follow-up just now. Please retry; your conversation is still available.")
+                             clarification_question="I couldn't process this follow-up just now. Please retry; your conversation is still available.",
+                             resolution_error="provider_failure", history_messages_used=len(recent))
     try:
         payload = json.loads(raw)
         if not isinstance(payload, dict) or set(payload) != set(CONTEXT_SCHEMA["schema"]["required"]):
@@ -237,7 +298,8 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
                 raise ValueError("Missing clarification kind")
             return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
                                  method="ambiguous", relation="PARTIAL_CONTEXT" if relation == "PARTIAL_CONTEXT" else "FOLLOW_UP",
-                                 selected_context=selected, clarification_question=CLARIFICATION_MESSAGES[clarification_kind])
+                                 selected_context=selected, clarification_question=CLARIFICATION_MESSAGES[clarification_kind],
+                                 history_messages_used=len(recent))
         if clarification_kind != "NONE":
             raise ValueError("Inconsistent clarification kind")
         if not query.strip() or len(query) > MAX_QUERY_CHARACTERS or len(subject) > 160:
@@ -266,12 +328,20 @@ def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None 
         if relation == "FOLLOW_UP" and subject and not _contains(query, subject):
             query = f"{query} Subject: {subject}."
         return ResolvedQuery(question, query.strip(), subject.strip(), True, method="contextualized",
-                             relation=relation, selected_context=selected)
-    except Exception:
+                             relation=relation, selected_context=selected, history_messages_used=len(recent))
+    except (ValueError, TypeError, KeyError) as error:
         # Never silently search an unresolved generic follow-up after invalid output.
         # No conversation text or provider exception is logged here.
-        return ResolvedQuery(question, "", uses_history=True, needs_clarification=True,
-                             method="invalid_context", relation="FOLLOW_UP")
+        # Only locally defined error labels; no raw output or provider messages.
+        reason = "invalid_json" if isinstance(error, json.JSONDecodeError) else "invalid_schema"
+        if type(error) is ValueError:
+            reason = {
+                "Subject absent from user intent": "ungrounded_subject",
+                "Follow-up lacks an explicit subject": "missing_subject",
+                "Missing clarification kind": "missing_clarification_kind",
+                "Inconsistent clarification kind": "inconsistent_clarification_kind",
+            }.get(str(error), reason)
+        return _invalid_context(question, recent, reason)
 
 
 def is_named_entity(subject: str) -> bool:

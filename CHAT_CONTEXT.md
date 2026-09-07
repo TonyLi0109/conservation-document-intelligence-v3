@@ -50,7 +50,7 @@ messages migrate when no browser archive exists.
 
 ## Verification
 
-`python -m pytest -q`: **79 passed**, including existing Wiki/provenance tests.
+`python -m pytest -q`: **95 passed**, including existing Wiki/provenance tests.
 Coverage includes explicit topic switches, post-switch follow-ups, rejected stale
 rewrites, partial-context retrieval of other-fish evidence, malformed context,
 thread isolation, canonical source restoration, legacy migration and Streamlit
@@ -80,7 +80,7 @@ clarification or miss evidence. Same-topic subject matching remains conservative
 The archive is browser storage, not a backup or authenticated transcript record.
 
 No dependency constraints or corpus data changed. The requirements release marker
-is v3.5.1 to trigger a fresh Streamlit deployment. Backend callers retain the same
+is v3.5.2 to trigger a fresh Streamlit deployment. Backend callers retain the same
 answer/preamble/sources tuple and optional `history`/`diagnostics` arguments.
 
 
@@ -111,3 +111,33 @@ is a separate provenance result and remains unchanged.
 
 The existing contextualization call now includes a clarification category; no extra
 API request or model-generated title is added. The 700-token output cap is unchanged.
+
+
+## v3.5.2: repeated generic fallback
+
+The exact one-line "Please name the subject..." message was still reachable when
+a model returned valid JSON with a semantically invalid subject or inconsistent
+clarification flags. For example, "measures addressing conservation threats" is
+not a verbatim subject from the user's question. Earlier tests supplied an ideal
+clarification classification and missed this rejected-output branch.
+
+All invalid-output paths now preserve a topic-aware clarification derived from
+recent user questions, rather than returning an empty clarification. Model output
+is never displayed through this fallback. Diagnostics include a fixed
+`resolution_error` code and `history_messages_used`, without logging raw model
+responses or private conversations.
+
+A narrow local rule also recognizes the reported answer when it consists solely
+of the listed threat categories. Asking about "these methods" then produces the
+specific threat-versus-intervention clarification without any API call. Answers
+containing actual methods, extra explanation or unfamiliar wording continue
+through normal contextualization. This rule does not manufacture a method list.
+
+Saved historical replies remain unchanged; send the follow-up again to obtain a
+new response. Old pending clarification metadata remains supported. The archive
+component receives an internal runtime version for deployment verification; no
+new product control or provider request is added.
+
+Verification: `python -m pytest -q` passes 95 tests. The exact reported dialogue
+is tested with contextualization, embedding, search and synthesis forbidden;
+additional invalid-output fixtures exercise the model-owned fallback.
