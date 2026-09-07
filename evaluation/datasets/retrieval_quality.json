@@ -1,0 +1,87 @@
+{
+  "dataset_id": "v3-final-evidence-retrieval-v1",
+  "version": 1,
+  "description": "Development labels for final evidence units, separate from the unchanged legacy document-retrieval benchmark. Real-corpus positives are inspected exact spans and partial relevance judgments. Synthetic vectors and recommendations are test-only, not measured language-model embeddings. Missing an inspected positive is reported; unjudged real documents are not asserted irrelevant. The fixed cases were authored before retrieval implementation tuning.",
+  "cases": [
+    {
+      "case_id": "retrieval_quality_exact_catalog_title", "kind": "corpus", "category": "exact_lookup",
+      "question": "Find the Invasive Carp Strategic Science Plan report.", "k": 5,
+      "relevance": {"DOC012": 2}, "expected_first_document_id": "DOC012",
+      "judgments": [{"document_id": "DOC012", "page_number": "1", "exact_span": "U.S. Geological Survey Invasive Carp Strategic Framework, 2023–27", "reason": "The stored publication has the catalog title requested by the user, although its printed title differs."}]
+    },
+    {
+      "case_id": "retrieval_quality_remembered_lock19", "kind": "corpus", "category": "remembered_report",
+      "question": "Find the report describing an underwater acoustic deterrent at Lock and Dam 19 near Keokuk.", "k": 5,
+      "relevance": {"DOC012": 2}, "expected_first_document_id": "DOC012",
+      "judgments": [{"document_id": "DOC012", "page_number": "9", "exact_span": "the USGS-developed underwater acoustic deterrent system at Lock and Dam 19 on the Mississippi River near Keokuk, Iowa", "reason": "Specific remembered installation and location. It does not establish telemetry tracking at that installation."}]
+    },
+    {
+      "case_id": "retrieval_quality_remembered_telemetry", "kind": "corpus", "category": "remembered_phrase",
+      "question": "Which report mentions real-time fish telemetry supported by the USGS streamgage network?", "k": 5,
+      "relevance": {"DOC012": 2}, "expected_first_document_id": "DOC012",
+      "judgments": [{"document_id": "DOC012", "page_number": "13", "exact_span": "the USGS streamgage network can support real-time fish telemetry and be used in forecasting invasive carp spawning conditions.", "reason": "Exact technical mechanism from the body text, separate from Lock and Dam 19."}]
+    },
+    {
+      "case_id": "retrieval_quality_semantic_paraphrase", "kind": "corpus", "category": "semantic_question",
+      "question": "How can restoring links between a river and nearby marshes help wildlife?", "k": 5,
+      "relevance": {"DOC001": 2},
+      "judgments": [{"document_id": "DOC001", "page_number": "139", "exact_span": "Recent research has shown that efforts to restore connectivity to floodplains have also been ben - eficial to specific riverine fish species", "reason": "Positive evidence for habitat reconnection benefits under a paraphrased question; other relevant documents remain unjudged."}]
+    },
+    {
+      "case_id": "retrieval_quality_carp_quantitative_outcome", "kind": "corpus", "category": "quantitative_question",
+      "question": "What data show how effective invasive carp removal methods are?", "k": 5,
+      "relevance": {"DOC016": 2},
+      "judgments": [{"document_id": "DOC016", "page_number": "Web", "exact_span": "Intensive efforts using commercial nets and electrified fish capture equipment resulted in over 19 tons of invasive carp including more than 10,000 silver carp being removed from the lower Grand River with an estimated 27 percent decrease in overall silver carp densities.", "quantitative": true, "reason": "Measured removal totals and estimated density change for this intervention; not a universal or randomized comparative efficacy claim."}]
+    },
+    {
+      "case_id": "retrieval_quality_buried_glade_monitoring", "kind": "corpus", "category": "large_report",
+      "question": "What was the mean community health index score across the 51 surveyed glade sites in Missouri?", "k": 5,
+      "relevance": {"DOC036": 2},
+      "judgments": [{"document_id": "DOC036", "page_number": "328", "exact_span": "The mean CHI score was 82.9 ± 1.2 standard error of the mean (SEM) with the lowest score being 52.8 and the highest 97.6.", "quantitative": true, "reason": "Body evidence beyond page 300 of a large strategy. The studied sites were glades, not wetlands; the stored chunk begins on physical p328."}]
+    },
+    {
+      "case_id": "retrieval_quality_multiple_wetland_reports", "kind": "corpus", "category": "multi_document_synthesis",
+      "question": "How do the Missouri State Wildlife Action Plan and Missouri Wetland Program Plan address wetland restoration and floodplain connections?", "k": 5,
+      "relevance": {"DOC001": 2, "DOC002": 2}, "expected_document_ids": ["DOC001", "DOC002"],
+      "judgments": [
+        {"document_id": "DOC001", "page_number": "148", "exact_span": "Where practical, promote the restoration of more natural stream flow variations and hydrologic connections between streams and floodplains.", "reason": "The wildlife action plan recommends hydrologic reconnection."},
+        {"document_id": "DOC002", "page_number": "10", "exact_span": "implementing streambank stabilization and wetland restoration at the confluence of Hickory and Shoal Creeks", "reason": "The wetland program plan describes a specific restoration activity, useful alongside the other plan."}
+      ]
+    },
+    {
+      "case_id": "retrieval_quality_scientific_name_alias", "kind": "corpus", "category": "entity_alias",
+      "question": "What does the Missouri strategy say about Dreissena polymorpha?", "k": 5,
+      "relevance": {"DOC036": 2},
+      "judgments": [{"document_id": "DOC036", "page_number": "307", "exact_span": "zebra mussels ( Dreissena polymorpha)", "reason": "The stored text explicitly identifies the scientific/common-name pair within Missouri aquatic invasive species evidence."}]
+    },
+    {
+      "case_id": "retrieval_quality_fixture_semantic_paraphrase", "kind": "fixture", "category": "semantic_question",
+      "question": "What prevents unwanted swimmers from proceeding upriver?", "query_vector": [0.95, 0.05, 0.0], "k": 3,
+      "relevance": {"DOC902": 2}, "expected_document_ids": ["DOC902"], "minimum_recall": 1,
+      "notes": "Hand-authored query vector independently represents the acoustic barrier fixture; tests dense candidate plumbing, not real embedding quality."
+    },
+    {
+      "case_id": "retrieval_quality_fixture_plant_topic_drift", "kind": "fixture", "category": "topic_drift",
+      "question": "What data show the effectiveness of invasive carp control methods?", "query_vector": [0.0, 0.0, 1.0], "k": 3,
+      "relevance": {"DOC901": 2, "DOC902": 2, "DOC908": 2}, "forbidden_document_ids": ["DOC903"],
+      "minimum_recall": 0.6666666666666666,
+      "notes": "The deliberately wrong dense vector ranks a plant trial first; entity relevance must correct the final evidence rather than citing its invented80% outcome for carp."
+    },
+    {
+      "case_id": "retrieval_quality_fixture_duplicate_suppression", "kind": "fixture", "category": "duplicate_suppression",
+      "question": "What evidence compares invasive carp commercial harvest outcomes?", "query_vector": [1.0, 0.0, 0.0], "k": 4,
+      "relevance": {"DOC901": 2, "DOC908": 2}, "expected_document_ids": ["DOC901", "DOC908"],
+      "duplicate_document_ids": ["DOC901", "DOC901", "DOC901", "DOC901"], "maximum_duplicate_evidence_rate": 0
+    },
+    {
+      "case_id": "retrieval_quality_fixture_conflicting_outcomes", "kind": "fixture", "category": "conflicting_evidence",
+      "question": "How effective is commercial harvest for reducing invasive carp abundance across studies?", "query_vector": [1.0, 0.0, 0.0], "k": 3,
+      "relevance": {"DOC901": 2, "DOC908": 2}, "expected_document_ids": ["DOC901", "DOC908"],
+      "notes": "Keep the invented60% improvement and the invented nonsignificant result from a different study; retrieving only positive outcomes fails."
+    },
+    {"case_id": "retrieval_quality_current_guidance", "kind": "temporal", "category": "current_guidance", "delegate_case_id": "temporal_explicit_supersession"},
+    {"case_id": "retrieval_quality_historical_guidance", "kind": "temporal", "category": "historical_question", "delegate_case_id": "temporal_historical_source"},
+    {"case_id": "retrieval_quality_contextual_quantitative_followup", "kind": "conversation", "category": "contextual_followup", "delegate_case_id": "conversation-A-contextual-effectiveness"},
+    {"case_id": "retrieval_quality_topic_switch_in_same_thread", "kind": "conversation", "category": "topic_switch", "delegate_case_id": "conversation-B-new-topic-same-thread"}
+  ]
+}

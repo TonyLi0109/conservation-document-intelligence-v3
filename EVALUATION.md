@@ -1,7 +1,8 @@
 # V3 automated evaluation
 
-V3 now has an offline-first, declarative evaluation suite. The existing runtime
-retrieval, Wiki and citation architectures are unchanged. The latest conversation
+V3 has an offline-first, declarative evaluation suite. The current hybrid retrieval
+extension is described in [RETRIEVAL.md](RETRIEVAL.md), including real-query-vector
+ablations and final-evidence metrics. The latest conversation
 behavior is preserved: threads can be resumed within one page; refreshing clears
 all page conversations.
 
@@ -50,7 +51,8 @@ Dataset files under evaluation/datasets:
 
 | File | Coverage |
 | --- | --- |
-| retrieval.json | 13 development queries over the actual 36-document, 1,134-chunk corpus; 16 inspected positive judgments with exact source spans and reasons |
+| retrieval.json | 13 development queries over the bundled 36-document corpus (currently 964 canonical chunks); 16 inspected positive judgments with exact source spans and reasons |
+| retrieval_quality.json | 8 additional real queries with page/span labels, 4 controlled retrieval fixtures, and 4 explicit reruns of context/lifecycle compatibility cases |
 | fixture_corpus.json | 10 explicitly synthetic documents with invented outcomes and hand-authored three-dimensional vectors |
 | retrieval_fixtures.json | controlled carp/zebra rankings, a plant distractor and a no-result query |
 | provenance.json | valid multi-source numeric answer plus 8 invalid/adversarial examples |
@@ -212,9 +214,20 @@ Initial offline run: 42/42 case checks passed in approximately 2 seconds of runn
 (about 3 seconds including process startup on this workstation). This pass count tests
 invariants/label integrity; it does not mean every query retrieves every relevant doc.
 
-The lifecycle extension adds 22 cases, bringing the current suite to 64 cases.
+The lifecycle extension added 22 cases, bringing that release to 64 cases.
+The retrieval extension adds 16 rows, bringing the current suite to 80 cases.
+Four new rows are compatibility reruns, not independent relevance questions.
 The 42-case measurements below describe the original evaluation release and its
 unchanged retrieval/Wiki benchmark; temporal scores are reported separately.
+
+The current suite additionally scores actual final-K evidence in the
+`retrieval_quality` category. Its real labels are partial: missing an inspected
+positive span is visible even when a case passes structural invariants. The
+reviewed baseline gates changes in these metrics. Use
+`python -m evaluation.retrieval_ablation` to compare retrieval variants; dense
+variants require a matching cached query vector, or explicit
+`--live-embeddings` opt-in. Missing vectors are skipped rather than approximated.
+See [RETRIEVAL.md](RETRIEVAL.md) for the measured comparison and its limits.
 
 Validation on this workstation: 261 pytest cases passed (258 fast tests and 3
 integration tests), up from 106 existing tests. Full pytest took about 8 seconds;

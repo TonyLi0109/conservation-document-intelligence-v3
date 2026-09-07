@@ -157,8 +157,9 @@ def run_suite(*, corpus=SETTINGS.storage.database_path, retrieval_cases=DATASET_
               top_k=5, live=False, model=None, case_ids=None):
     from evaluation.scenarios import run_conversation_cases, run_wiki_cases
     from evaluation.temporal_cases import run_temporal_cases
+    from evaluation.retrieval_quality import run_retrieval_quality_cases
     paths = {"retrieval": Path(retrieval_cases), **{name: DATASET_DIR / (name + ".json")
-             for name in ("retrieval_fixtures", "provenance", "conversations", "wiki", "temporal")}}
+             for name in ("retrieval_fixtures", "provenance", "conversations", "wiki", "temporal", "retrieval_quality")}}
     datasets = {name: load_dataset(path) for name, path in paths.items()}
     selected = set(case_ids or [])
     if selected:
@@ -179,6 +180,7 @@ def run_suite(*, corpus=SETTINGS.storage.database_path, retrieval_cases=DATASET_
             rows += run_wiki_cases(store, datasets["wiki"]["cases"])
             rows += run_conversation_cases(datasets["conversations"]["cases"])
             rows += run_temporal_cases(store, datasets["temporal"])
+            rows += run_retrieval_quality_cases(store, datasets["retrieval_quality"])
         if attempts:
             rows.append(row({"case_id": "OFFLINE-NETWORK"}, "infrastructure", "offline_fixture", {},
                             [f"Offline suite attempted {len(attempts)} provider calls"]))
@@ -188,7 +190,9 @@ def run_suite(*, corpus=SETTINGS.storage.database_path, retrieval_cases=DATASET_
     git = subprocess.run(["git", "rev-parse", "HEAD"], cwd=V3_ROOT, capture_output=True, text=True)
     report = {"report_version": REPORT_VERSION, "generated_at": datetime.now(timezone.utc).isoformat(),
               "configuration": {"top_k": top_k, "live": live, "model": (model or SETTINGS.models.llm_model) if live else None,
-                                "seed": 0, "case_ids": sorted(selected), "metrics_version": 1},
+                                "seed": 0, "case_ids": sorted(selected), "metrics_version": 1,
+                                "retrieval": {key: getattr(SETTINGS.retrieval, key)
+                                              for key in SETTINGS.retrieval.__dataclass_fields__}},
               "environment": {"python": platform.python_version(), "git_commit": git.stdout.strip(),
                               "elapsed_seconds": round(time.perf_counter() - started, 3)},
               "fingerprints": {**{name: fingerprint(path) for name, path in paths.items()},

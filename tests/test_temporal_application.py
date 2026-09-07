@@ -84,7 +84,7 @@ def test_ordinary_search_preserves_existing_semantic_path(store, monkeypatch):
         calls.append(text)
         return [1., 0.]
     monkeypatch.setattr(main, "generate_embedding", embed)
-    results = main.search_corpus("invasive carp population monitoring", store, top_k=2)
+    results = main.search_corpus("invasive carp population monitoring", store, top_k=2, mode="dense")
     assert calls == ["invasive carp population monitoring"]
     assert results == store.retrieve([1., 0.], 2)
 

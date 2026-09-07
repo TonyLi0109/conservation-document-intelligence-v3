@@ -44,7 +44,7 @@
     {
       "case_id": "conversation-E-partial-context-broadens-fish",
       "turns": [
-        {"question": "What invasive carp control methods are discussed?", "query_embedding": [0.95, 0.05, 0], "expected": {"source_document_ids": ["DOC902"]}},
+        {"question": "What invasive carp control methods are discussed?", "query_embedding": [0.95, 0.05, 0], "claim_count": 2, "expected": {"source_document_ids": ["DOC902"]}},
         {"question": "Which of those methods are also used for other invasive fish?", "query_embedding": [0.75, 0.05, 0.2],
          "resolver": {"standalone_query": "Which acoustic telemetry methods are also used for other invasive fish?", "active_subject": "other invasive fish", "uses_history": true, "needs_clarification": false, "relation": "PARTIAL_CONTEXT", "selected_context": "Acoustic telemetry from the invasive carp discussion", "clarification_kind": "NONE"},
          "expected": {"relation": "PARTIAL_CONTEXT", "active_subject": "other invasive fish", "uses_history": true, "needs_clarification": false, "query_contains": ["other invasive fish", "acoustic telemetry"], "query_not_contains": ["Subject: invasive carp"], "source_document_ids": ["DOC906"], "answer_contains": ["Northern snakehead"], "forbidden_document_ids": ["DOC903"]}}
@@ -69,7 +69,7 @@
         {"thread": "B", "question": "Tell me about zebra mussels.", "query_embedding": [0, 1, 0]},
         {"action": "rerun"},
         {"action": "switch", "thread": "A", "expected_message_count": 2},
-        {"thread": "A", "question": "Which of those methods has the strongest quantitative evidence?", "query_embedding": [1, 0, 0],
+        {"thread": "A", "question": "Which of those methods has the strongest quantitative evidence?", "query_embedding": [1, 0, 0], "claim_count": 2,
          "resolver": {"standalone_query": "Which invasive carp control method, commercial harvest or acoustic barriers, has the strongest quantitative evidence?", "active_subject": "invasive carp", "uses_history": true, "needs_clarification": false, "relation": "FOLLOW_UP", "selected_context": "Control methods from thread A before it was reopened", "clarification_kind": "NONE"},
          "expected": {"relation": "FOLLOW_UP", "active_subject": "invasive carp", "history_messages_used": 2, "resolver_prompt_not_contains": ["zebra mussels"], "resolver_prompt_contains": ["Commercial harvest"], "source_document_ids": ["DOC901"], "forbidden_document_ids": ["DOC904", "DOC905"]}}
       ],

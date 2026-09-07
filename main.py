@@ -39,7 +39,8 @@ DOCUMENT_FILENAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 DOCUMENT_DISCOVERY_PATTERN = re.compile(
-    r"\b(which|what|list|identify|find)\b.*\b(document|documents|sources|reports|plans)\b",
+    r"\b(?:which|what)\s+(?:(?:MDC|USGS|USACE)\s+)?(?:documents|reports|sources|plans)\b"
+    r"|\b(?:list|identify|find|locate)\b.{0,80}\b(?:documents?|sources?|reports?|plans?)\b",
     re.IGNORECASE,
 )
 SIMPLE_EXISTENCE_PATTERN = re.compile(
@@ -207,6 +208,8 @@ def ingest_corpus(pdf_directory: str, store: KnowledgeStore) -> int:
         if hasattr(store, "connection"):
             from document_lifecycle import rebuild_lifecycles
             rebuild_lifecycles(store)
+            from retrieval_index import ensure_retrieval_index
+            ensure_retrieval_index(store)
         logging.info(
             "Committed %s artifacts across %s canonical document(s)",
             committed_count,
@@ -346,10 +349,19 @@ def ask_chatbot_with_context(
     if direct_answer is not None:
         return direct_answer
 
-    if DOCUMENT_DISCOVERY_PATTERN.search(question):
-        artifacts = store.retrieve_document_matches(
-            question, top_k=max(10, top_k)
-        )
+    if DOCUMENT_DISCOVERY_PATTERN.search(original_question):
+        if hasattr(store, "connection"):
+            from retrieval import retrieve_evidence
+            trace = {}
+            matches = retrieve_evidence(store, question, top_k=max(10, top_k) * 4, diagnostics=trace)
+            by_document = {}
+            for artifact in matches:
+                by_document.setdefault(artifact.document_id, artifact)
+            artifacts = list(by_document.values())[:max(10, top_k)]
+            if diagnostics is not None:
+                diagnostics["retrieval"] = trace
+        else:
+            artifacts = store.retrieve_document_matches(question, top_k=max(10, top_k))
         if artifacts:
             lines = [
                 f"- [{artifact.document_id} — {artifact.title}, "
@@ -358,44 +370,61 @@ def ask_chatbot_with_context(
             ]
             return (
                 "\n".join(lines),
-                "A corpus-wide document scan found the following sources with explicit matching evidence:",
+                "The following sources match the requested report or topic:",
                 artifacts,
             )
 
-    try:
-        query_embedding = generate_embedding(question)
-        candidate_count = max(top_k, top_k * 4)
-        candidates = store.retrieve(query_embedding, candidate_count)
-    except Exception as error:
-        logging.exception("Semantic retrieval failed; attempting keyword fallback")
-        candidates = store.retrieve(
-            None, max(top_k, top_k * 4), method="keyword", query_text=question
+    if hasattr(store, "connection"):
+        from retrieval import retrieve_evidence
+        trace = {}
+        try:
+            query_embedding = generate_embedding(question)
+        except Exception:
+            logging.warning("Query embedding unavailable; using indexed lexical retrieval")
+            query_embedding = None
+            trace["embedding_fallback"] = True
+        artifacts = retrieve_evidence(
+            store, question, query_embedding=query_embedding, top_k=top_k,
+            entity=context.active_subject if context.relation == "FOLLOW_UP" else None,
+            diagnostics=trace,
         )
-    if context.uses_history and context.active_subject:
-        # Supplement semantic results with the existing keyword retriever.
-        keyword_candidates = store.retrieve(
-            None, top_k * 4, method="keyword", query_text=question
-        )
-        candidates = candidates + keyword_candidates
-        if context.relation == "FOLLOW_UP":
-            matching = [artifact for artifact in candidates
-                        if matches_subject(artifact, context.active_subject)]
-            # Broad topics such as "conservation threats" are retrieval intent,
-            # not an entity string that every useful source must repeat verbatim.
-            candidates = matching if is_named_entity(context.active_subject) else matching + [
-                artifact for artifact in candidates if not matches_subject(artifact, context.active_subject)
-            ]
-    # Document-oriented questions benefit from source diversity rather than five
-    # neighboring chunks from the same report. The order remains retrieval-owned.
-    artifacts: list[KnowledgeArtifact] = []
-    seen_documents: set[str] = set()
-    for artifact in candidates:
-        if artifact.document_id in seen_documents:
-            continue
-        seen_documents.add(artifact.document_id)
-        artifacts.append(artifact)
-        if len(artifacts) >= top_k:
-            break
+        if diagnostics is not None:
+            diagnostics["retrieval"] = trace
+    else:
+        try:
+            query_embedding = generate_embedding(question)
+            candidate_count = max(top_k, top_k * 4)
+            candidates = store.retrieve(query_embedding, candidate_count)
+        except Exception as error:
+            logging.exception("Semantic retrieval failed; attempting keyword fallback")
+            candidates = store.retrieve(
+                None, max(top_k, top_k * 4), method="keyword", query_text=question
+            )
+        if context.uses_history and context.active_subject:
+            # Supplement semantic results with the existing keyword retriever.
+            keyword_candidates = store.retrieve(
+                None, top_k * 4, method="keyword", query_text=question
+            )
+            candidates = candidates + keyword_candidates
+            if context.relation == "FOLLOW_UP":
+                matching = [artifact for artifact in candidates
+                            if matches_subject(artifact, context.active_subject)]
+                # Broad topics such as "conservation threats" are retrieval intent,
+                # not an entity string that every useful source must repeat verbatim.
+                candidates = matching if is_named_entity(context.active_subject) else matching + [
+                    artifact for artifact in candidates if not matches_subject(artifact, context.active_subject)
+                ]
+        # Document-oriented questions benefit from source diversity rather than five
+        # neighboring chunks from the same report. The order remains retrieval-owned.
+        artifacts: list[KnowledgeArtifact] = []
+        seen_documents: set[str] = set()
+        for artifact in candidates:
+            if artifact.document_id in seen_documents:
+                continue
+            seen_documents.add(artifact.document_id)
+            artifacts.append(artifact)
+            if len(artifacts) >= top_k:
+                break
     artifact_handles = {
         f"K{index}": artifact for index, artifact in enumerate(artifacts, start=1)
     }
@@ -841,6 +870,8 @@ def search_corpus(
     store: KnowledgeStore,
     *,
     top_k: int = DEFAULT_TOP_K,
+    mode: str = "hybrid_rerank",
+    diagnostics: dict | None = None,
 ) -> list[KnowledgeArtifact]:
     """Embed a query and return canonical semantic matches for UI/API callers."""
 
@@ -851,6 +882,19 @@ def search_corpus(
     intent = detect_temporal_intent(query)
     if intent.mode != "none" and hasattr(store, "connection"):
         return select_temporal_evidence(query, store, top_k=top_k, intent=intent)["artifacts"]
+    if hasattr(store, "connection"):
+        from retrieval import retrieve_evidence
+        query_embedding = None
+        if mode != "lexical":
+            try:
+                query_embedding = generate_embedding(query)
+            except Exception:
+                if mode == "dense":
+                    raise
+                if diagnostics is not None:
+                    diagnostics["embedding_fallback"] = True
+        return retrieve_evidence(store, query, query_embedding=query_embedding,
+                                 top_k=top_k, mode=mode, diagnostics=diagnostics)
     query_embedding = generate_embedding(query)
     return store.retrieve(query_embedding, top_k)
 
@@ -872,6 +916,8 @@ def _parse_args() -> argparse.Namespace:
     )
     mode.add_argument("--backfill-lifecycle", action="store_true",
                       help="Rebuild document dates, families and revision evidence without API calls")
+    mode.add_argument("--rebuild-retrieval", action="store_true",
+                      help="Rebuild the derived BM25 retrieval indexes without changing canonical evidence or embeddings")
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     parser.add_argument("--database", type=Path, default=SETTINGS.storage.database_path,
                         help="SQLite corpus to query or migrate (defaults to the configured corpus)")
@@ -897,7 +943,7 @@ def _run_cli() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     with KnowledgeStore(args.database) as store:
-        if not args.backfill_lifecycle:
+        if not args.backfill_lifecycle and not args.rebuild_retrieval:
             store.upsert_document_sources(list(load_source_catalog().values()))
         if args.ingest:
             chunk_count = ingest_corpus(args.ingest, store)
@@ -917,6 +963,11 @@ def _run_cli() -> None:
             from document_lifecycle import rebuild_lifecycles
             records = rebuild_lifecycles(store)
             print(f"Updated lifecycle metadata for {len(records)} documents; canonical text and vectors retained.")
+            return
+        if args.rebuild_retrieval:
+            from retrieval_index import ensure_retrieval_index, index_stats
+            ensure_retrieval_index(store, force=True)
+            print(json.dumps(index_stats(store)))
             return
         if store.artifact_count == 0:
             raise RuntimeError("The persistent corpus is empty. Run --ingest first.")

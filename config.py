@@ -96,6 +96,18 @@ class ChunkingSettings:
 @dataclass(frozen=True, slots=True)
 class RetrievalSettings:
     top_k: int = field(default_factory=lambda: _positive_int("V3_TOP_K", 5))
+    dense_top_k: int = field(default_factory=lambda: _positive_int("V3_DENSE_TOP_K", 48))
+    lexical_top_k: int = field(default_factory=lambda: _positive_int("V3_LEXICAL_TOP_K", 48))
+    fusion_top_k: int = field(default_factory=lambda: _positive_int("V3_FUSION_TOP_K", 96))
+    rerank_top_k: int = field(default_factory=lambda: _positive_int("V3_RERANK_TOP_K", 64))
+    document_top_k: int = field(default_factory=lambda: _positive_int("V3_DOCUMENT_TOP_K", 8))
+    document_chunk_k: int = field(default_factory=lambda: _positive_int("V3_DOCUMENT_CHUNK_K", 6))
+    rrf_k: int = field(default_factory=lambda: _positive_int("V3_RRF_K", 60))
+    duplicate_threshold: float = field(default_factory=lambda: _positive_float("V3_DUPLICATE_THRESHOLD", 0.85))
+
+    def __post_init__(self) -> None:
+        if self.duplicate_threshold > 1:
+            raise RuntimeError("V3_DUPLICATE_THRESHOLD must be at most 1")
 
 
 @dataclass(frozen=True, slots=True)

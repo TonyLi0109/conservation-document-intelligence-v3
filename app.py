@@ -113,6 +113,8 @@ def get_store() -> KnowledgeStore:
     store = KnowledgeStore(database_path)
     store.upsert_document_sources(list(load_source_catalog().values()))
     get_lifecycles(store)
+    from retrieval_index import ensure_retrieval_index
+    ensure_retrieval_index(store)
     return store
 
 
@@ -356,7 +358,7 @@ def render_search_tab(store: KnowledgeStore) -> None:
         control_col1, control_col2 = st.columns(2)
         search_method = control_col1.selectbox(
             "Search method",
-            ["Keyword Search", "Semantic Search"],
+            ["Hybrid Search", "Keyword Search", "Semantic Search"],
         )
         top_k = control_col2.selectbox(
             "Number of results",
@@ -372,18 +374,17 @@ def render_search_tab(store: KnowledgeStore) -> None:
             with st.spinner(f"Running {search_method.lower()}..."):
                 try:
                     temporal_search = detect_temporal_intent(query).mode != "none"
-                    if temporal_search or search_method == "Semantic Search":
-                        results = search_corpus(query, store, top_k=top_k)
-                    else:
-                        results = store.retrieve(
-                            None,
-                            top_k,
-                            method="keyword",
-                            query_text=query,
-                        )
+                    retrieval_trace = {}
+                    mode = {"Hybrid Search": "hybrid_rerank", "Keyword Search": "lexical",
+                            "Semantic Search": "dense"}[search_method]
+                    results = search_corpus(query, store, top_k=top_k, mode=mode,
+                                            diagnostics=retrieval_trace)
                     st.session_state.v3_search_results = results
                     st.session_state.v3_search_query = query
-                    st.session_state.v3_search_method = "Temporal source applicability" if temporal_search else search_method
+                    st.session_state.v3_search_method = (
+                        "Temporal source applicability" if temporal_search else
+                        "Keyword Search (semantic search unavailable)" if retrieval_trace.get("embedding_fallback") else search_method
+                    )
                 except Exception as error:
                     st.session_state.v3_search_results = []
                     print(f"\n[DEBUG] Corpus search failed: {repr(error)}\n")

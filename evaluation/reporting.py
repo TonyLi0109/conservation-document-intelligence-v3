@@ -5,6 +5,9 @@ from pathlib import Path
 
 REPORT_VERSION = 1
 RANK_METRICS = ("recall_at_k", "precision_at_k", "mrr", "ndcg_at_k", "hit_at_k")
+QUALITY_METRICS = ("exact_span_hit_rate", "quantitative_evidence_hit_rate", "exact_document_hit_rate",
+                   "required_document_recall", "compatibility_pass_rate")
+LOWER_BETTER_METRICS = ("duplicate_evidence_rate", "wrong_topic_retrieval_rate")
 
 
 def summarize(rows):
@@ -58,7 +61,7 @@ def compare_baseline(report, baseline):
             continue
         if old["passed"] and not row["passed"]:
             result[destination].append(f"{identifier}: invariant changed from pass to fail")
-        for metric in RANK_METRICS:
+        for metric in RANK_METRICS + QUALITY_METRICS + LOWER_BETTER_METRICS:
             before, after = old["metrics"].get(metric), row["metrics"].get(metric)
             if type(before) in (int, float) and type(after) not in (int, float):
                 result[destination].append(f"{identifier}: previously measured {metric} is missing or nonnumeric")
@@ -66,8 +69,10 @@ def compare_baseline(report, baseline):
                 delta = after - before
                 result["metric_deltas"].append({"case_id": row["case_id"], "category": row["category"],
                                                 "mode": row["mode"], "metric": metric, "delta": delta})
-                if delta < -1e-9:
-                    result[destination].append(f"{identifier}: {metric} decreased by {-delta:.4f}")
+                adverse = delta if metric in LOWER_BETTER_METRICS else -delta
+                if adverse > 1e-9:
+                    direction = "increased" if metric in LOWER_BETTER_METRICS else "decreased"
+                    result[destination].append(f"{identifier}: {metric} {direction} by {adverse:.4f}")
     return result
 
 
@@ -90,6 +95,8 @@ def render_summary(report):
                 "unsupported_supersession_claim_count", "temporal_intent_accuracy",
                 "latest_report_accuracy", "lifecycle_metadata_accuracy", "inapplicable_document_preference_errors",
             )
+            if name.startswith("retrieval_quality/"):
+                visible = RANK_METRICS + QUALITY_METRICS + LOWER_BETTER_METRICS + visible
             for metric in visible:
                 if metric in group["metrics_mean"]:
                     lines.append(f"- {metric}: {group['metrics_mean'][metric]:.4f}")

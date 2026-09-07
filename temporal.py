@@ -127,7 +127,8 @@ def select_temporal_evidence(question, store, *, top_k=5, intent=None,
     index = get_lifecycles(store)
     terms = _terms(question)
     clean_query = " ".join(terms) or question
-    candidates = store.retrieve(None, max(20, top_k * 8), method="keyword", query_text=clean_query)
+    from retrieval import retrieve_evidence
+    candidates = retrieve_evidence(store, clean_query, top_k=max(20, top_k * 8))
     rank = {}
     best = {}
     for artifact in candidates:

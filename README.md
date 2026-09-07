@@ -20,6 +20,9 @@ contracts, source registry, storage, validation, and knowledge-compilation flow.
 - Offline evaluation measures ranked retrieval, citation safety, Wiki and conversation regressions; live provider runs are opt-in.
 - Document lifecycle evidence distinguishes current guidance, historical versions,
   explicit replacements and partial updates without treating every newer source as authoritative.
+- Hybrid retrieval combines indexed BM25 with dense search, document recovery,
+  quantitative evidence ranking and conservative deduplication. See [RETRIEVAL.md](RETRIEVAL.md)
+  for the pipeline, measured ablations, configuration and rebuild command.
 
 ## Architecture
 
@@ -174,7 +177,7 @@ Defaults live in `config.py`. Important overrides include:
 |---|---|---|
 | Parsing | CharlesChen130 cleanup and PDF extraction | Page-aware chunks, hard process isolation, fallback extraction, coverage report |
 | UI/Wiki | shanged entity-oriented exploration and legacy tab structure | Thin Streamlit UI backed by persistent V3 contracts |
-| Retrieval | Semantic and keyword approaches from both prototypes | Persistent exact cosine index plus deterministic keyword ranking |
+| Retrieval | Semantic and lexical approaches from both prototypes | Persistent cosine and FTS5/BM25 indexes, RRF, document recovery and evidence reranking |
 | Synthesis | Corpus-grounded prompting from both prototypes | Atomic claims, strict JSON Schema, exact-span fail-closed validation |
 | Knowledge compilation | Legacy Wiki/entity organization | Separate versioned compiled tables with canonical evidence edges and caching |
 | Insufficient evidence | Baseline refusal behaviors | Partial-context synthesis with unsupported facets outside factual claims |

@@ -1,4 +1,4 @@
-# Release v3.8: evidence-backed document lifecycle and temporal source applicability.
+# Release v3.9: indexed hybrid retrieval, measured evidence ranking and retrieval ablations.
 openai==2.54.0
 numpy>=1.26.0
 pypdf==6.16.1

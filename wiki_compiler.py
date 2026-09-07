@@ -47,7 +47,11 @@ def _span_score(span: str, topic: str) -> int:
 
 def _prepare_evidence(topic: str, store: KnowledgeStore, *, semantic_fallback: bool = False):
     """Common bounded retrieval and source-span selection for both builders."""
-    retrieved = store.retrieve(None, WIKI_TOP_K * 4, method="keyword", query_text=topic)
+    if hasattr(store, "connection"):
+        from retrieval import retrieve_evidence
+        retrieved = retrieve_evidence(store, topic, top_k=WIKI_TOP_K * 4)
+    else:
+        retrieved = store.retrieve(None, WIKI_TOP_K * 4, method="keyword", query_text=topic)
     if not retrieved and semantic_fallback:
         retrieved = store.retrieve(generate_embedding(topic), WIKI_TOP_K)
     # Rank useful sentences, then take one chunk per document before filling
