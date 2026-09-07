@@ -347,8 +347,10 @@ def ask_chatbot_with_context(
         keyword_candidates = store.retrieve(
             None, top_k * 4, method="keyword", query_text=question
         )
-        candidates = [artifact for artifact in candidates + keyword_candidates
-                      if matches_subject(artifact, context.active_subject)]
+        candidates = candidates + keyword_candidates
+        if context.relation == "FOLLOW_UP":
+            candidates = [artifact for artifact in candidates
+                          if matches_subject(artifact, context.active_subject)]
     # Document-oriented questions benefit from source diversity rather than five
     # neighboring chunks from the same report. The order remains retrieval-owned.
     artifacts: list[KnowledgeArtifact] = []

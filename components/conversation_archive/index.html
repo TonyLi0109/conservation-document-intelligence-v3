@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><meta charset="utf-8"></head><body>
+<script>
+// The archive stays in this app's browser origin; no third-party scripts/storage.
+const key = "v3-conversation-history-v1";
+let initialized = false;
+let lastSnapshot = null;
+let lastNotification = "";
+function notify(value) {
+  const signature = JSON.stringify(value);
+  if (signature === lastNotification) return;
+  lastNotification = signature;
+  window.parent.postMessage({isStreamlitMessage:true, type:"streamlit:setComponentValue", value}, window.location.origin);
+}
+function read() {
+  const raw = localStorage.getItem(key);
+  return raw ? JSON.parse(raw) : {revision:"", archive:null};
+}
+window.addEventListener("message", event => {
+  if (event.source !== window.parent || event.origin !== window.location.origin || event.data.type !== "streamlit:render") return;
+  const args = event.data.args;
+  try {
+    const stored = read();
+    if (!initialized) {
+      initialized = true;
+      lastSnapshot = JSON.stringify(stored.archive);
+      notify({status:"loaded", ...stored});
+    }
+    if (args.snapshot == null) return;
+    const snapshot = JSON.stringify(args.snapshot);
+    if (snapshot === lastSnapshot) return;
+    if (stored.revision !== args.expected_revision) {
+      notify({status:"conflict", revision:stored.revision});
+      return;
+    }
+    const revision = crypto.randomUUID();
+    localStorage.setItem(key, JSON.stringify({revision, archive:args.snapshot}));
+    lastSnapshot = snapshot;
+    notify({status:"saved", revision});
+  } catch (_) {
+    // setItem is atomic: a quota/storage failure never clears the previous archive.
+    notify({status:"storage_error"});
+  }
+});
+window.parent.postMessage({isStreamlitMessage:true, type:"streamlit:componentReady", apiVersion:1}, window.location.origin);
+window.parent.postMessage({isStreamlitMessage:true, type:"streamlit:setFrameHeight", height:0}, window.location.origin);
+</script></body></html>

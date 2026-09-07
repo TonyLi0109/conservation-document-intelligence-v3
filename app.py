@@ -10,6 +10,7 @@ import streamlit as st
 
 from config import CHAT_MODEL_OPTIONS, SETTINGS
 from chat_context import MAX_HISTORY_MESSAGES
+import conversation_history as chat_history
 from database import KnowledgeStore, prepare_runtime_database
 from evaluation import run_evaluation
 from main import ask_chatbot_with_context, search_corpus
@@ -183,6 +184,56 @@ def render_corpus_tab(store: KnowledgeStore) -> None:
             )
 
 
+def prepare_conversations(store: KnowledgeStore) -> dict | None:
+    """Hydrate once, then save only this browser's selected conversation book."""
+    if "v3_chat_book" not in st.session_state:
+        response = chat_history.archive_component(snapshot=None, expected_revision="", key="v3_chat_archive", default=None)
+        if response is None:
+            st.caption("Loading saved conversations…")
+            return None
+        try:
+            if response.get("status") == "storage_error":
+                raise ValueError("Browser storage is unavailable")
+            book = chat_history.restore_book(response.get("archive"), store)
+            legacy = st.session_state.get("v3_chat_messages", [])
+            if response.get("archive") is None and legacy:
+                for message in legacy:
+                    chat_history.append_message(book, book["active_id"], message)
+        except (ValueError, TypeError, KeyError):
+            book = chat_history.empty_book()
+            st.session_state.v3_archive_disabled = True
+        st.session_state.v3_chat_book = book
+        st.session_state.v3_archive_revision = response.get("revision", "")
+        st.session_state.v3_active_conversation = book["active_id"]
+        st.rerun()
+
+    book = st.session_state.v3_chat_book
+    if st.button("New conversation", key="v3_new_conversation"):
+        st.session_state.v3_active_conversation = chat_history.new_conversation(book)
+    selected = st.selectbox(
+        "Conversation", list(book["conversations"]), key="v3_active_conversation",
+        index=list(book["conversations"]).index(book["active_id"]),
+        format_func=lambda identifier: book["conversations"][identifier]["title"] + " · " + identifier[:6],
+    )
+    book["active_id"] = selected
+    # Preserve the existing renderer/backend message contract as a thread-local alias.
+    st.session_state.v3_chat_messages = book["conversations"][selected]["messages"]
+    disabled = st.session_state.get("v3_archive_disabled", False)
+    response = chat_history.archive_component(
+        snapshot=None if disabled else chat_history.export_book(book),
+        expected_revision=st.session_state.get("v3_archive_revision", ""),
+        key="v3_chat_archive", default=None,
+    )
+    if response and response.get("status") == "saved":
+        st.session_state.v3_archive_revision = response["revision"]
+    if disabled or (response and response.get("status") == "storage_error"):
+        st.warning("Browser history could not be saved or loaded. This session is still available; the previous saved archive has not been replaced.")
+    elif response and response.get("status") == "conflict":
+        st.warning("History changed in another tab. This tab's latest changes are not saved. Keep this tab open to retain them; reload only after preserving any new messages.")
+    st.caption("Conversations are saved in this browser. New conversation keeps your previous chats.")
+    return book
+
+
 def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
     """Render session chat while delegating all answers to the V3 engine."""
 
@@ -199,10 +250,10 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
         # api_clients also loads .env.local; this notice is intentionally advisory.
         st.caption("API credentials will be loaded from the local V3 environment file.")
 
-    if "v3_chat_messages" not in st.session_state:
-        st.session_state.v3_chat_messages = []
-    if st.button("New conversation", key="v3_new_conversation"):
-        st.session_state.v3_chat_messages = []
+    book = prepare_conversations(store)
+    if book is None:
+        return
+    conversation_id = book["active_id"]
 
     def render_sources(sources: list[object], *, key_namespace: str) -> None:
         """Render only backend-validated cited artifacts."""
@@ -243,6 +294,8 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
                     message.get("sources", []),
                     key_namespace=f"history_{message_index}",
                 )
+                if message.get("unavailable_source_refs"):
+                    st.caption("Some historical sources are unavailable in the current corpus. The original messages are retained.")
             else:
                 st.write(message["content"])
 
@@ -254,7 +307,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
         return
 
     recent_history = st.session_state.v3_chat_messages[-MAX_HISTORY_MESSAGES:]
-    st.session_state.v3_chat_messages.append(
+    chat_history.append_message(book, conversation_id,
         {"role": "user", "content": question}
     )
     with st.chat_message("user"):
@@ -273,11 +326,11 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
                 )
             except Exception as error:
                 print(f"\n[DEBUG] Chatbot failed: {repr(error)}\n")
-                st.error(
-                    "Neither semantic nor keyword retrieval could produce a response. "
-                    f"Error details: {error}"
-                )
-                return
+                chat_history.append_message(book, conversation_id, {
+                    "role": "assistant", "content": "The request could not be completed. Please try again.",
+                    "sources": [],
+                })
+                st.rerun()
         # This Markdown has already passed V3's fail-closed validator. HTML stays disabled.
         if preamble:
             st.info(preamble)
@@ -286,7 +339,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
             validated_sources,
             key_namespace=f"current_{len(st.session_state.v3_chat_messages)}",
         )
-    st.session_state.v3_chat_messages.append(
+    chat_history.append_message(book, conversation_id,
         {
             "role": "assistant",
             "preamble": preamble,
@@ -295,6 +348,7 @@ def render_chatbot_tab(store: KnowledgeStore, selected_model: str) -> None:
             "context": context_diagnostics,
         }
     )
+    st.rerun()
 
 
 def render_search_tab(store: KnowledgeStore) -> None:

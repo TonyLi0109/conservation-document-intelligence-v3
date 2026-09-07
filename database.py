@@ -788,6 +788,17 @@ class KnowledgeStore:
             for item in artifact_ids
         ]
 
+    def resolve_source_reference(self, document_id: str, page_number: str, digest: str) -> KnowledgeArtifact | None:
+        """Restore a browser archive reference only from canonical local storage."""
+        rows = self.connection.execute(
+            "SELECT artifact_id, original_text_chunk FROM knowledge_artifacts WHERE document_id=? AND page_number=?",
+            (document_id, page_number),
+        ).fetchall()
+        for row in rows:
+            if hashlib.sha256(row["original_text_chunk"].encode()).hexdigest() == digest:
+                return self._artifacts_by_ranked_ids([row["artifact_id"]])[0]
+        return None
+
     def retrieve(
         self,
         query_embedding: Embedding | None,

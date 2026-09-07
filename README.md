@@ -138,7 +138,10 @@ the resolved query and active subject alongside each assistant response. Only
 the most recent six messages are considered; conversation text is intent
 context, never evidence. Explicit new topics override prior context.
 
-Use **New conversation** to clear the session's messages and context. Independent
+Use **New conversation** to create a separate thread while preserving previous chats.
+Use the **Conversation** selector to reopen and continue a thread. Messages, context,
+and canonical source references persist in this browser across refreshes; this is
+not account-based or cross-device storage. Independent
 questions have no contextualizer call. Ambiguous follow-ups make one bounded
 structured request using the selected model, followed by the existing grounded
 answer pipeline. If a reference cannot be safely resolved, the app asks for

@@ -29,7 +29,9 @@ def history(answer=FIRST_ANSWER):
 
 def resolved(query, subject="invasive carp", uses_history=True):
     return json.dumps({"standalone_query": query, "active_subject": subject,
-                       "uses_history": uses_history, "needs_clarification": False})
+                       "uses_history": uses_history, "needs_clarification": False,
+                       "relation": "FOLLOW_UP" if uses_history else "NEW_TOPIC",
+                       "selected_context": "Prior control methods" if uses_history else ""})
 
 
 @pytest.fixture
@@ -194,7 +196,7 @@ def test_history_and_metadata_are_bounded_and_not_modified(monkeypatch):
     before = json.dumps(turns)
     def rewrite(system, prompt, schema, **kwargs):
         data = json.loads(prompt)
-        assert len(data["recent_messages"]) == context.MAX_HISTORY_MESSAGES
+        assert len(data["recent_messages"]) == 2  # Latest explicit subject discards stale turns.
         assert all(len(m["content"]) <= context.MAX_MESSAGE_CHARACTERS for m in data["recent_messages"])
         return resolved("What are the costs of invasive carp control?")
     monkeypatch.setattr(context, "call_structured_llm", rewrite)
@@ -202,7 +204,8 @@ def test_history_and_metadata_are_bounded_and_not_modified(monkeypatch):
     assert json.dumps(turns) == before
 
 
-def test_ui_passes_prior_history_and_new_conversation_clears_it(store):
+def test_ui_passes_thread_history_and_new_conversation_preserves_it(store):
+    import conversation_history as threads
     source = Path(main.__file__).with_name("app.py").read_text(encoding="utf-8")
     renderer = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "render_chatbot_tab")
     class State(dict):
@@ -212,6 +215,14 @@ def test_ui_passes_prior_history_and_new_conversation_clears_it(store):
     st.session_state = State(v3_chat_messages=history())
     st.button.return_value = False
     st.chat_input.return_value = "What about cost?"
+    book = threads.empty_book()
+    original_id = book["active_id"]
+    book["conversations"][original_id]["messages"] = history()
+    def prepare(store):
+        if st.button.return_value:
+            threads.new_conversation(book)
+        st.session_state.v3_chat_messages = book["conversations"][book["active_id"]]["messages"]
+        return book
     calls = []
     def ask(question, store, *, history, diagnostics, **kwargs):
         calls.append(history)
@@ -219,6 +230,7 @@ def test_ui_passes_prior_history_and_new_conversation_clears_it(store):
         return "No cost data available.", "", []
     namespace = {"st": st, "os": __import__("os"), "KnowledgeStore": KnowledgeStore,
                  "MAX_HISTORY_MESSAGES": context.MAX_HISTORY_MESSAGES,
+                 "prepare_conversations": prepare, "chat_history": threads,
                  "ask_chatbot_with_context": ask}
     exec(compile(ast.Module(body=[renderer], type_ignores=[]), "app.py", "exec"), namespace)
     namespace["render_chatbot_tab"](store, "gpt-4.1-mini")
@@ -229,6 +241,7 @@ def test_ui_passes_prior_history_and_new_conversation_clears_it(store):
     namespace["render_chatbot_tab"](store, "gpt-4.1-mini")
     assert calls[1] == []
     assert len(st.session_state.v3_chat_messages) == 2
+    assert len(book["conversations"][original_id]["messages"]) == 4
 
 
 def test_previous_report_is_identified_from_trusted_cited_metadata(monkeypatch):
@@ -270,10 +283,12 @@ def test_live_model_facet_phrase_is_normalized_to_grounded_entity(monkeypatch):
 def test_streamlit_app_runs_three_turn_workflow_and_reset_offline(store, monkeypatch):
     """Exercise the complete Streamlit page, with only provider calls replaced."""
     import database
+    import conversation_history as threads
     import streamlit as st
     from streamlit.testing.v1 import AppTest
 
     st.cache_resource.clear()
+    monkeypatch.setattr(threads, "archive_component", lambda **kwargs: {"status": "loaded", "archive": None, "revision": ""})
     monkeypatch.setattr(database, "KnowledgeStore", lambda *args, **kwargs: store)
     monkeypatch.setattr(database, "prepare_runtime_database", lambda *args: Path("unused.db"))
     monkeypatch.setattr(store, "upsert_document_sources", lambda *args: None)
@@ -300,6 +315,7 @@ def test_streamlit_app_runs_three_turn_workflow_and_reset_offline(store, monkeyp
             app.chat_input[0].set_value(question).run()
             assert not app.exception
         messages = app.session_state["v3_chat_messages"]
+        original_id = app.session_state["v3_chat_book"]["active_id"]
         assert len(messages) == 6
         assert "43,000" in messages[3]["content"] and "80 percent" not in messages[3]["content"]
         assert messages[3]["context"]["uses_history"]
@@ -307,6 +323,13 @@ def test_streamlit_app_runs_three_turn_workflow_and_reset_offline(store, monkeyp
         assert not messages[5]["context"]["uses_history"]
         app.button(key="v3_new_conversation").click().run()
         assert app.session_state["v3_chat_messages"] == []
+        assert len(app.session_state["v3_chat_book"]["conversations"][original_id]["messages"]) == 6
+        second_id = app.session_state["v3_chat_book"]["active_id"]
+        app.chat_input[0].set_value("Tell me about invasive aquatic plants.").run()
+        assert app.session_state["v3_chat_book"]["active_id"] == second_id
+        assert len(app.session_state["v3_chat_messages"]) == 2
+        app.selectbox(key="v3_active_conversation").set_value(original_id).run()
+        assert len(app.session_state["v3_chat_messages"]) == 6
         assert not app.exception
     finally:
         st.cache_resource.clear()
