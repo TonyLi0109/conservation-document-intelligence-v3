@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from evaluation.dataset import fixture_store
+from evaluation.dataset import corpus_copy, fixture_store
 from evaluation.scenarios import (
     _canonical_wiki_links,
     evaluate_wiki,
@@ -36,7 +36,9 @@ def test_declarative_conversations_exercise_real_pipeline_offline(case):
 
 @pytest.mark.parametrize("case", WIKI_CASES, ids=lambda case: case["case_id"])
 def test_declarative_wiki_paths_validate_provenance_offline(case):
-    with fixture_store() as store:
+    context = (corpus_copy(Path(__file__).parents[1] / "data" / "corpus.db")
+               if case.get("corpus") == "canonical" else fixture_store())
+    with context as store:
         row = run_wiki_cases(store, [case])[0]
     assert row["passed"], row["failure_reasons"]
     assert row["details"]["semantic_quality_measured"] is False

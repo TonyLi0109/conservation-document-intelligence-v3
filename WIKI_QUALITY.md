@@ -1,5 +1,69 @@
 # Immediately available Wiki quality
 
+## Agency and relationship update (v3.10)
+
+The previous v3.3 deterministic cache still had poor agency pages. Its sentence
+splitter treated `U.S.` as a sentence ending, so full agency names disappeared
+from otherwise useful statements. Exact-name matching missed USACE, USFWS, MDC
+and DOI body passages. Selection favored general threat language over agency
+responsibilities and limited a document's useful body pages through a rigid
+source-diversity pass. Only three narrow relationship patterns were available,
+and the renderer hid the entire Related entities section when its list was empty.
+
+`wiki_evidence.py` now provides abbreviation-safe sentence slicing, curated
+aliases, agency-specific responsibility/activity scoring, and bounded explicit
+relationship rules. Quotes remain contiguous substrings of canonical chunks.
+Navigation prefixes can be excluded by selecting the actual sentence suffix;
+reference lists, source notes, table noise and incomplete fragments are demoted.
+Alias lookups use the existing local FTS index, with a bounded candidate pool.
+Source diversity is a soft preference, allowing multiple useful body pages from
+one report. Both local compilation and explicit regeneration use these rules.
+
+Relationships cover supported management, collaboration, location, habitat
+types, membership and qualified threat interactions in either direction.
+Containment evidence is labelled as protection from spread, never as occurrence.
+Known aliases resolve to canonical entity names; nested names do not create a
+second entity. Negation, conditional statements, separate work, reference-only
+mentions and independent clauses are excluded by the covered rules. These are
+conservative extraction rules, not a general semantic parser.
+
+All Wiki pages now display Related entities. Populated tables show the supporting
+evidence number and canonical document/page location. Empty pages explicitly say
+that the selected evidence did not yield a supported relationship; this does not
+claim that no relationship exists anywhere in the corpus.
+
+The bundled database was prepared with `main.py --precompile-wiki`: 12 older
+deterministic pages were rebuilt as `v3.10-extractive`, while the three existing
+AI pages (MDC, Forest and Marsh) were preserved. Of 15 deployed pages, 11 now have
+relationships, versus four before. USACE has eight facts, 38 evidence excerpts
+and three related entities; USFWS has eight facts, 42 excerpts and three related
+entities. Examples include USACE research in DOC006 and USFWS wetlands information
+responsibilities in DOC022, plus its nine Missouri refuges in DOC036. DOI was
+also repaired. Raw document, chunk and vector table hashes stayed identical.
+
+On this local corpus, rebuilding the 12 pages took 2.17 seconds. Across 150 cached
+loads, median Python/database time was 0.49 ms and maximum 1.12 ms. These timings
+exclude browser rendering and process startup. The prepared page-selection path
+performs no model, embedding or retrieval request. No paid API calls are needed
+for this update. An explicit regeneration can still improve prose through the
+selected model, with the same evidence contract and cache protection.
+
+Regression coverage now includes agency abbreviations/aliases, real agency
+source passages, relationship direction, conditional and unrelated clauses,
+reference noise, cache-only rendering, source references and empty states.
+The evaluation dataset also checks agency source content instead of relying
+only on the older Invasive carp cases.
+Validation: 533 pytest tests and all 83 offline evaluation cases passed.
+
+To verify, open Wiki → Agency → U.S. Army Corps of Engineers and U.S. Fish and
+Wildlife Service. Check the introduction, eight facts, Related entities source
+column and matching evidence expanders. Switch to Climate change and Great Lakes
+to inspect qualified interaction and containment relationships. Missouri and
+other pages without extracted relationships still show the section and its
+empty-state explanation. Do not click Regenerate to obtain the updated preload.
+
+The sections below record the earlier v3.3 implementation and measurements.
+
 ## Root cause and path comparison
 
 `app.render_wiki_tab` selects an entity and calls

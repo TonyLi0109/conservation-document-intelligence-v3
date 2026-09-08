@@ -35,6 +35,39 @@
       "case_id": "wiki-missing-evidence",
       "topic": "AbsentEvaluationEntityQZX987",
       "operation": "missing_evidence"
+    },
+    {
+      "case_id": "wiki-usace-agency-role-local-recompile",
+      "topic": "U.S. Army Corps of Engineers",
+      "operation": "local_recompile",
+      "corpus": "canonical",
+      "thresholds": {"min_overview_characters": 80, "min_important_facts": 3, "min_evidence_count": 3, "min_related_entities": 1},
+      "expected_evidence": [
+        {"document_id": "DOC006", "contains": ["research activities performed by the U.S. Army Corps of Engineers", "aquatic invasive species"]}
+      ],
+      "expected_related_entities": ["Wetland"]
+    },
+    {
+      "case_id": "wiki-usfws-agency-role-local-recompile",
+      "topic": "U.S. Fish and Wildlife Service",
+      "operation": "local_recompile",
+      "corpus": "canonical",
+      "thresholds": {"min_overview_characters": 80, "min_important_facts": 3, "min_evidence_count": 3, "min_related_entities": 1},
+      "expected_evidence": [
+        {"document_id": "DOC022", "contains": ["U.S. Fish and Wildlife Service is the principal federal agency", "wetland and deepwater habitats"]}
+      ],
+      "expected_related_entities": ["Wetland"]
+    },
+    {
+      "case_id": "wiki-climate-invasive-interaction-local-recompile",
+      "topic": "Climate change",
+      "operation": "local_recompile",
+      "corpus": "canonical",
+      "thresholds": {"min_overview_characters": 80, "min_important_facts": 3, "min_evidence_count": 3, "min_related_entities": 1},
+      "expected_evidence": [
+        {"document_id": "DOC036", "contains": ["Climate change", "may interact with other threats such as invasive species"]}
+      ],
+      "expected_related_entities": ["Invasive species"]
     }
   ]
 }

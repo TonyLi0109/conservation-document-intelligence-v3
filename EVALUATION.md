@@ -6,6 +6,15 @@ ablations and final-evidence metrics. The latest conversation
 behavior is preserved: threads can be resumed within one page; refreshing clears
 all page conversations.
 
+The v3.10 Wiki update adds three inspected corpus regressions: USACE research
+responsibilities, USFWS wetlands information duties, and the qualified interaction
+between climate change and invasive species. The suite now contains 83 cases.
+Optional Wiki content labels require the named document and all inspected phrases
+in one valid source quote, plus a supported related entity. Existing provenance
+checks still verify canonical ownership. See [WIKI_QUALITY.md](WIKI_QUALITY.md).
+The 80 prior cases still pass; the reviewed baseline adds the three new cases
+without changing their predecessors' thresholds or retrieval judgments.
+
 ## What changed
 
 The former evaluation.py had eight fixed questions, paid semantic/generation calls
@@ -56,7 +65,7 @@ Dataset files under evaluation/datasets:
 | fixture_corpus.json | 10 explicitly synthetic documents with invented outcomes and hand-authored three-dimensional vectors |
 | retrieval_fixtures.json | controlled carp/zebra rankings, a plant distractor and a no-result query |
 | provenance.json | valid multi-source numeric answer plus 8 invalid/adversarial examples |
-| wiki.json | cached load, local rebuild, scripted regeneration compatibility, invalid refresh, provider failure and missing evidence |
+| wiki.json | cached load, local rebuild, scripted regeneration compatibility, invalid refresh, provider failure, missing evidence, and three agency/threat content regressions |
 | conversations.json | 11 scenarios: follow-up, independent switch, post-switch pronoun, explicit return, partial scope, isolation, resume, direct threat follow-up, refresh reset, ambiguity and no evidence |
 | temporal.json | 22 lifecycle scenarios: 16 synthetic cases and 6 inspected corpus cases; dates, revision relationships, current/historical/comparison selection and follow-up currentness |
 

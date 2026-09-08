@@ -139,6 +139,55 @@ def _canonical_wiki_links(result: dict, store: KnowledgeStore) -> list[str]:
     return failures
 
 
+def evaluate_wiki_expectations(result: dict, case: dict) -> dict:
+    """Check inspected content labels against individual, verbatim source quotes."""
+    concept, artifacts = result.get("concept", {}), result.get("artifacts", {})
+    evidence = concept.get("supporting_evidence", [])
+    related = concept.get("related_entities", [])
+    normalize = lambda value: " ".join(value.casefold().split())
+    quoted = []
+    supported = set()
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        artifact = artifacts.get(item.get("evidence_id"))
+        span = item.get("exact_span")
+        if artifact is not None and isinstance(span, str) and span and span in artifact.original_text_chunk:
+            quoted.append((artifact.document_id, normalize(span)))
+            supported.add((item["evidence_id"], span))
+    failures, metrics = [], {}
+    if "expected_evidence" in case:
+        matches = 0
+        for expected in case["expected_evidence"]:
+            document_id, phrases = expected["document_id"], expected["contains"]
+            if not isinstance(document_id, str) or not document_id.strip() or not isinstance(phrases, list) or not phrases:
+                raise ValueError("Expected Wiki evidence needs a document ID and nonempty contains list")
+            if any(not isinstance(phrase, str) or not phrase.strip() for phrase in phrases):
+                raise ValueError("Expected Wiki evidence phrases must be nonempty strings")
+            found = any(doc == document_id and all(normalize(phrase) in span for phrase in phrases)
+                        for doc, span in quoted)
+            matches += found
+            if not found:
+                failures.append(f"Expected Wiki evidence missing from {document_id}: {phrases!r}")
+        metrics.update(expected_evidence_count=len(case["expected_evidence"]),
+                       matched_expected_evidence_count=matches)
+    if "expected_related_entities" in case:
+        names = {normalize(item["entity_name"]) for item in related
+                 if isinstance(item, dict) and isinstance(item.get("entity_name"), str)
+                 and (item.get("evidence_id"), item.get("exact_span")) in supported}
+        matches = 0
+        for name in case["expected_related_entities"]:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Expected related entities must be nonempty strings")
+            found = normalize(name) in names
+            matches += found
+            if not found:
+                failures.append(f"Expected supported Wiki relationship missing: {name}")
+        metrics.update(expected_related_entity_count=len(case["expected_related_entities"]),
+                       matched_expected_related_entity_count=matches)
+    return {"metrics": metrics, "passed": not failures, "failure_reasons": failures}
+
+
 def run_wiki_cases(store: KnowledgeStore, cases: list[dict]) -> list[dict]:
     """Evaluate compiled corpus pages on a disposable store supplied by the runner."""
     rows = []
@@ -208,6 +257,11 @@ def run_wiki_cases(store: KnowledgeStore, cases: list[dict]) -> list[dict]:
                     metrics.update(assessed["metrics"], provider_calls=provider.call_count)
                     failures.extend(assessed["failure_reasons"])
                     failures.extend(_canonical_wiki_links(result, store))
+                    content = evaluate_wiki_expectations(result, case)
+                    metrics.update(content["metrics"])
+                    failures.extend(content["failure_reasons"])
+                    details.update({key: case[key] for key in ("expected_evidence", "expected_related_entities")
+                                    if key in case})
                     compatible = set(before["concept"]) == set(result["concept"])
                     metrics["structural_compatibility"] = compatible
                     if not compatible:

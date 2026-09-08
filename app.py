@@ -515,19 +515,32 @@ def render_wiki_tab(store: KnowledgeStore, selected_model: str) -> None:
             st.markdown(f"- {fact}", unsafe_allow_html=False)
 
     entities = concept.get("related_entities", [])
+    st.markdown("#### Related entities")
     if entities:
-        st.markdown("#### Related entities")
+        evidence_numbers = {
+            (item["evidence_id"], item["exact_span"]): number
+            for number, item in enumerate(concept["supporting_evidence"], start=1)
+        }
+        relationship_rows = []
+        for entity in entities:
+            artifact = artifacts.get(entity["evidence_id"])
+            citation = (
+                f"[{artifact.document_id}, {format_artifact_location(artifact)}]"
+                if artifact is not None else "Source unavailable"
+            )
+            number = evidence_numbers.get((entity["evidence_id"], entity["exact_span"]))
+            relationship_rows.append({
+                "Entity": entity["entity_name"],
+                "Relationship": entity["relationship_type"],
+                "Source": f"Evidence {number} · {citation}" if number is not None else citation,
+            })
         st.dataframe(
-            [
-                {
-                    "Entity": entity["entity_name"],
-                    "Relationship": entity["relationship_type"],
-                }
-                for entity in entities
-            ],
+            relationship_rows,
             width="stretch",
             hide_index=True,
         )
+    else:
+        st.caption("No supported relationships were found in the evidence selected for this page.")
 
     st.markdown("#### Supporting evidence")
     for number, evidence in enumerate(concept["supporting_evidence"], start=1):

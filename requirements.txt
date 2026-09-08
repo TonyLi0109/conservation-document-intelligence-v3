@@ -1,4 +1,4 @@
-# Release v3.9: indexed hybrid retrieval, measured evidence ranking and retrieval ablations.
+# Release v3.10: preloaded agency Wiki quality and evidence-backed entity relationships.
 openai==2.54.0
 numpy>=1.26.0
 pypdf==6.16.1

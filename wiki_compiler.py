@@ -10,7 +10,9 @@ from typing import Any
 from api_clients import LLM_MODEL, call_structured_llm, generate_embedding
 from config import CHAT_MODEL_OPTIONS, SETTINGS
 from data_models import KnowledgeArtifact
-from database import KnowledgeStore, WIKI_ENTITY_CANDIDATES
+from database import KnowledgeStore
+from wiki_evidence import ALIASES, mentions as _mentions, span_score as _span_score
+from wiki_evidence import explicit_relationships, source_sentences, entity_pattern
 
 
 WIKI_TOP_K = SETTINGS.wiki.top_k
@@ -19,30 +21,9 @@ MAX_SPANS_PER_ARTIFACT = SETTINGS.wiki.max_spans_per_artifact
 MIN_SPAN_CHARACTERS = 40
 MAX_SPAN_CHARACTERS = 600
 EXTRACTIVE_MODEL_NAME = "deterministic-extractive"
-EXTRACTIVE_COMPILER_VERSION = "v3.3-extractive"
+EXTRACTIVE_COMPILER_VERSION = "v3.10-extractive"
 LOGGER = logging.getLogger(__name__)
-SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 TERM_PATTERN = re.compile(r"[\w'-]+", re.UNICODE)
-
-
-def _mentions(text: str, name: str) -> bool:
-    return bool(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I))
-
-
-def _span_score(span: str, topic: str) -> int:
-    """Prefer definitions and substantive topic statements over repeated labels."""
-    score = 10 if _mentions(span, topic) else 0
-    if re.search(r"^" + re.escape(topic) + r"\s+(?:(?:is|are)\s+|a collective term\b)", span, re.I):
-        score += 12
-    if re.search(r"\b(?:include|includes|threat|native|habitat|feed|compete|control|remov\w*|spread|harm)\b", span, re.I):
-        score += 3
-    if re.search(r"\b(?:threat\w*|compete|harm\w*|risk|disrupt\w*)\b", span, re.I):
-        score += 4
-    if re.search(r"https?://|\.{2,}|\b(?:table of contents|references cited)\b", span, re.I):
-        score -= 15
-    if re.search(r"\b(?:h\s+ttps|www\s*\.)|\b\d+\s+[A-Z][a-z]+\s+[A-Z]", span):
-        score -= 5
-    return score
 
 
 def _prepare_evidence(topic: str, store: KnowledgeStore, *, semantic_fallback: bool = False):
@@ -50,29 +31,46 @@ def _prepare_evidence(topic: str, store: KnowledgeStore, *, semantic_fallback: b
     if hasattr(store, "connection"):
         from retrieval import retrieve_evidence
         retrieved = retrieve_evidence(store, topic, top_k=WIKI_TOP_K * 4)
+        # Acronym-only body pages are often more informative than title pages.
+        # Separate bounded postings lookups keep rare aliases from being buried
+        # beneath the individual tokens of a long agency name.
+        from retrieval_index import lexical_candidates
+        ids = []
+        for alias in ALIASES.get(topic, ()):
+            ids.extend(lexical_candidates(store, alias, top_k=WIKI_TOP_K * 4))
+        additional = store._artifacts_by_ranked_ids(list(dict.fromkeys(ids)))
+        seen = {(a.document_id, a.page_number, a.original_text_chunk) for a in retrieved}
+        for artifact in additional:
+            key = (artifact.document_id, artifact.page_number, artifact.original_text_chunk)
+            if key not in seen:
+                retrieved.append(artifact)
+                seen.add(key)
     else:
         retrieved = store.retrieve(None, WIKI_TOP_K * 4, method="keyword", query_text=topic)
     if not retrieved and semantic_fallback:
         retrieved = store.retrieve(generate_embedding(topic), WIKI_TOP_K)
-    # Rank useful sentences, then take one chunk per document before filling
-    # remaining slots. Repetitive headers must not crowd out definitions.
+    # Prefer substantive spans while softly encouraging source diversity.
+    # A one-document-first quota can bury an agency's own research/body pages.
     candidates = []
     for artifact in retrieved:
         try:
             spans = _allowed_spans(artifact.original_text_chunk, topic)
         except ValueError:
             continue
+        spans = [span for span in spans if _mentions(span, topic)]
+        if not spans:
+            continue
         spans.sort(key=lambda span: -_span_score(span, topic))
         candidates.append((artifact, spans))
     candidates.sort(key=lambda item: -_span_score(item[1][0], topic))
-    chosen, deferred, documents = [], [], set()
-    for item in candidates:
-        if item[0].document_id in documents:
-            deferred.append(item)
-        else:
-            chosen.append(item)
-            documents.add(item[0].document_id)
-    chosen = (chosen + deferred)[:WIKI_TOP_K]
+    chosen, documents = [], {}
+    while candidates and len(chosen) < WIKI_TOP_K:
+        best = max(range(len(candidates)), key=lambda i: (
+            _span_score(candidates[i][1][0], topic)
+            - 4 * documents.get(candidates[i][0].document_id, 0)))
+        item = candidates.pop(best)
+        chosen.append(item)
+        documents[item[0].document_id] = documents.get(item[0].document_id, 0) + 1
     if not chosen:
         raise RuntimeError("No safe evidence spans were found for this Wiki concept")
     artifacts = {f"K{i}": item[0] for i, item in enumerate(chosen, 1)}
@@ -110,28 +108,14 @@ def _extractive_payload(topic: str, allowed: dict[str, list[str]]) -> dict[str, 
     # Turn a glossary label into a sentence without changing its factual content.
     overview = re.sub(r"^" + re.escape(topic) + r"\s+A collective term\b",
                       topic + " is a collective term", overview, flags=re.I)
-    relationships = []
-    for names in WIKI_ENTITY_CANDIDATES.values():
-        for name in names:
-            if name.casefold() == topic.casefold():
-                continue
-            for item in ranked:
-                span = item["exact_span"]
-                if re.search(r"\b(?:no|not|never|neither|except|without)\b", span, re.I):
-                    continue
-                # Require an explicit predicate joining complete entity names,
-                # rather than token overlap or mere chunk co-occurrence.
-                subject, target = re.escape(topic), re.escape(name)
-                patterns = (
-                    (rf"{subject}\s+(?:are\s+|is\s+)?(?:found|present|occur\w*|live\w*)\s+in\s+{target}", "occurs in"),
-                    (rf"{subject},?\s+(?:include\w*|such as|is a collective term for|a collective term for)\s+[^.;:]*?{target}", "includes"),
-                    (rf"{target}\s+(?:manage\w*|control\w*|monitor\w*)\s+{subject}", "managed or monitored by"),
-                )
-                relation = next((label for pattern, label in patterns
-                                 if re.search(r"(?<!\w)" + pattern + r"(?!\w)", span, re.I)), None)
-                if relation:
-                    relationships.append({"entity_name": name, "relationship_type": relation, **item})
-                    break
+    relationships, related = [], set()
+    for item in ranked:
+        if _span_score(item["exact_span"], topic) < 10:
+            continue
+        for name, relation in explicit_relationships(item["exact_span"], topic):
+            if name not in related:
+                relationships.append({"entity_name": name, "relationship_type": relation, **item})
+                related.add(name)
     return {
         "concept_title": topic,
         "summary": overview,
@@ -283,11 +267,17 @@ def _allowed_spans(text: str, topic_query: str) -> list[str]:
     """Select bounded, relevant strings that are proven substrings of ``text``."""
 
     topic_terms = set(TERM_PATTERN.findall(topic_query.casefold()))
-    raw_candidates = SENTENCE_BOUNDARY.split(text)
+    raw_candidates = source_sentences(text)
     candidates: list[tuple[float, int, str]] = []
     seen: set[str] = set()
     for position, raw_candidate in enumerate(raw_candidates):
         span = raw_candidate.strip()
+        # PDF covers and web navigation are sometimes joined to the first real
+        # sentence. Take a contiguous sentence suffix, retaining canonical text.
+        start = re.search(r"\b(?:This report (?:describes|presents)|The " + entity_pattern(topic_query) + r"\s+(?:is|manages|operates|provides|serves)\b)", span)
+        if start and start.start() > 0:
+            span = span[start.start():]
+        span = span.lstrip("• \t\n")
         if (
             span in seen
             or len(span) < MIN_SPAN_CHARACTERS
@@ -301,7 +291,7 @@ def _allowed_spans(text: str, topic_query: str) -> list[str]:
         normalized = span.casefold()
         covered_terms = sum(term in normalized for term in topic_terms)
         phrase_bonus = 4 if topic_query.casefold() in normalized else 0
-        candidates.append((phrase_bonus + covered_terms, position, span))
+        candidates.append((_span_score(span, topic_query) * 100 + phrase_bonus + covered_terms, position, span))
 
     if not candidates:
         # Some extracted PDF chunks contain no usable sentence punctuation. A
