@@ -428,6 +428,11 @@ def ask_chatbot_with_context(
     artifact_handles = {
         f"K{index}": artifact for index, artifact in enumerate(artifacts, start=1)
     }
+    from compiled_context import add_compiled_context
+    compiled_prompt, compiled_ids = add_compiled_context(store, question, artifact_handles)
+    artifacts = list(artifact_handles.values())
+    if diagnostics is not None:
+        diagnostics["compiled_knowledge_ids"] = compiled_ids
     if not artifact_handles:
         answer, sources = validate_render_and_collect_sources(
             json.dumps(
@@ -442,7 +447,7 @@ def ask_chatbot_with_context(
             artifact_handles,
         )
         return answer, "No relevant evidence was retrieved from the corpus.", sources
-    user_prompt = build_synthesis_prompt(question, artifact_handles)
+    user_prompt = build_synthesis_prompt(question, artifact_handles) + compiled_prompt
     max_claims, max_output_tokens, _ = answer_length_constraints(original_question)
     try:
         llm_response = call_llm(

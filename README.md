@@ -12,7 +12,9 @@ contracts, source registry, storage, validation, and knowledge-compilation flow.
 - Compiled knowledge is stored separately from raw evidence and retains exact
   artifact links, method, model, and compiler version.
 - Wiki results are reusable: generation is cached unless the user requests a
-  refresh.
+  refresh. Chatbot synthesis also retrieves matching compiled concepts and their
+  canonical evidence, reusing summaries, facts, and relationships with fresh
+  request-local citation handles and unchanged exact-span validation.
 - PDF extraction uses isolated workers plus a PyMuPDF fallback and records page
   coverage and source SHA-256.
 - Citations preserve physical PDF pages and, when the source defines standard
@@ -35,17 +37,32 @@ source_catalog.csv + 36 local sources
                   |                               |
                   +---------- retrieval ----------+
                                   |
-                  structured generation + exact-span validation
-                         |                    |
-             compiled knowledge          chatbot claims
-                         |                    |
-                        Wiki          citations + source inspection
+                  +---------------+----------------+
+                  |                                |
+          Wiki compilation                  chatbot synthesis
+                  |                                ^
+          compiled knowledge -- cached concepts ---+
+                  |             + linked raw evidence
+                 Wiki                              |
+                                    exact-span validation
+                                                   |
+                                    citations + source inspection
 ```
 
 The `documents` registry represents original-source provenance. The
 `knowledge_artifacts` table represents canonical evidence. Tables prefixed with
 `compiled_` represent derived, reusable knowledge. Derived rows never replace
 source text.
+
+Ordinary chatbot synthesis searches compiled concept titles/keys in the resolved
+question, revalidates cached evidence, and adds the derived context alongside raw
+retrieval. Up to three concepts and twelve additional source chunks are included;
+concepts exceeding the source or derived-text budget are skipped. No match,
+invalid cache, or unavailable compiled storage falls back to raw retrieval.
+`diagnostics["compiled_knowledge_ids"]` records concepts supplied to synthesis.
+Chat reuses existing compilations without making another compilation API call.
+Direct extractive answers, document discovery, and temporal/version decisions
+retain their dedicated routes; compilation dates do not establish source authority.
 
 ## Setup
 

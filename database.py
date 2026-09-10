@@ -1062,16 +1062,23 @@ class KnowledgeStore:
 
         if not query_text.strip() or top_k <= 0:
             raise ValueError("query_text and a positive top_k are required")
-        pattern = f"%{query_text.strip()}%"
+        query = " ".join(query_text.casefold().split())
+        query_terms = set(re.findall(r"\w+", query))
         rows = self.connection.execute(
-            """SELECT knowledge_id, concept_title, summary, generation_version,
+            """SELECT knowledge_id, concept_key, concept_title, summary, generation_version,
                       model_name, generated_at
-               FROM compiled_knowledge
-               WHERE concept_title LIKE ? OR summary LIKE ?
-               ORDER BY concept_title LIMIT ?""",
-            (pattern, pattern, top_k),
+               FROM compiled_knowledge ORDER BY concept_title""",
         ).fetchall()
-        return [dict(row) for row in rows]
+        ranked = []
+        for row in rows:
+            title_terms = set(re.findall(r"\w+", row["concept_title"].casefold()))
+            key_terms = set(re.findall(r"\w+", row["concept_key"].casefold()))
+            matched = max((len(terms) for terms in (title_terms, key_terms)
+                           if terms and terms <= query_terms), default=0)
+            if matched or query in row["concept_title"].casefold() or query in row["summary"].casefold():
+                ranked.append((matched, dict(row)))
+        ranked.sort(key=lambda item: -item[0])
+        return [row for _, row in ranked[:top_k]]
 
 
 def ingest_chunk(store: KnowledgeStore, artifact: KnowledgeArtifact, embedding: Embedding) -> int:
