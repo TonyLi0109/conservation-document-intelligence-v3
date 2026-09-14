@@ -19,6 +19,7 @@ V3_ROOT = Path(__file__).resolve().parent
 # passed through as an arbitrary API model identifier.
 CHAT_MODEL_OPTIONS: tuple[str, ...] = (
     "gpt-4.1-mini",
+    "gpt-5.6-sol",
     "gpt-4.1",
     "gpt-4.1-nano",
     "gpt-4o",

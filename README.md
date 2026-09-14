@@ -108,6 +108,12 @@ complete.
 streamlit run app.py
 ```
 
+The global **Generation model** selector includes `gpt-5.6-sol` (GPT-5.6 Sol)
+for Chatbot, AI Wiki regeneration, and live Evaluation. The default remains
+`gpt-4.1-mini`. Sol uses `reasoning_effort="none"` to preserve the existing
+short response budget and request timeout. It uses the same `OPENAI_API_KEY`;
+the associated OpenAI project must have access to the model.
+
 ## Deploy with Streamlit Community Cloud
 
 The repository includes the read-ready `data/corpus.db`, so a hosted instance

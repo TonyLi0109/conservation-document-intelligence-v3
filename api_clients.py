@@ -236,14 +236,22 @@ def call_structured_llm(
     schema_payload = {
         key: value for key, value in response_format.items() if key != "type"
     }
+    selected_model = model or LLM_MODEL
+    # Keep Sol within the existing short, structured-output budget. Reasoning
+    # tokens share max_completion_tokens; do not inherit its medium default.
+    generation_options = (
+        {"reasoning_effort": "none"}
+        if selected_model == "gpt-5.6-sol"
+        else {"temperature": 0}
+    )
     raw_response = _client().chat.completions.with_raw_response.create(
-        model=model or LLM_MODEL,
+        model=selected_model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         max_completion_tokens=max_output_tokens,
-        temperature=0,
+        **generation_options,
         response_format={
             "type": "json_schema",
             "json_schema": schema_payload,
