@@ -35,7 +35,7 @@ def _records_for_validation(item: ClaimValidation) -> list[ClaimProvenanceRecord
     records: list[ClaimProvenanceRecord] = []
     for source in sources:
         matching = (
-            tuple(span for span in spans if source and span in source.original_text_chunk)
+            tuple(span for span in spans if source and span and span in source.original_text_chunk)
             or (spans if source is None else (None,))
         )
         for span in matching:

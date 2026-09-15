@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 import copy
+import re
 
 import pytest
 
@@ -255,3 +256,21 @@ def test_unrelated_source_is_not_added_to_anchored_family():
                                             anchor_document_ids=["DOC901"], top_k=5, as_of="2026-01-01")
     assert "DOC903" not in selected["selected_document_ids"]
     assert "DOC903" not in {source.document_id for source in selected["evidence"]}
+
+def test_temporal_renderer_limits_date_evidence_to_two_documents():
+    with corpus(document("DOC901", "2020"), document("DOC902", "2022"),
+                document("DOC903", "2024")) as store:
+        selected = select_temporal_evidence(
+            "Compare carp guidance from 2020 to 2022 and 2024.",
+            store, top_k=5, as_of="2026-01-01",
+        )
+        assert len(selected["artifacts"]) == 3
+        answer, _, _ = render_temporal_answer(selected, store)
+
+    displayed = re.findall(r"^- \*\*(DOC\d+):\*\*", answer, re.MULTILINE)
+    expected = [artifact.document_id for artifact in selected["artifacts"][:2]]
+    assert displayed == expected
+    assert selected["artifacts"][2].document_id not in displayed
+    assert answer.startswith("**Conclusion:**")
+    assert "Source excerpt:" not in answer
+    assert "Version/date evidence:" not in answer

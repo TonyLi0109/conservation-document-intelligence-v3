@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from datetime import date
 import calendar
 import re
+from uuid import uuid4
 
-from data_models import KnowledgeArtifact
+from data_models import ClaimValidation, ClaimValidationStatus, KnowledgeArtifact
+from provenance_log import ProvenanceLogger
 from validator import _citation
 
 
@@ -368,97 +370,143 @@ def is_lifecycle_assertion(text):
         text, re.I))
 
 
-def render_temporal_answer(selection, store):
-    """Render verified lifecycle decisions and verbatim guidance excerpts.
+def _evidence_source(evidence, artifacts, fallback=None):
+    """Resolve a persisted exact span to its canonical artifact."""
+    if not isinstance(evidence, dict):
+        return fallback
+    span = evidence.get("exact_span") or ""
+    return next((artifact for artifact in artifacts
+                 if artifact.document_id == evidence.get("document_id")
+                 and artifact.page_number == evidence.get("page_number")
+                 and span and span in artifact.original_text_chunk), fallback)
 
-    The application owns every temporal assertion; no LLM prose can invent a
-    revision edge or place an unverified currentness claim in a preamble.
-    """
+
+def _brief_lifecycle_summary(document, artifact, all_evidence, as_of):
+    """Return one concise date summary plus its exact provenance."""
+    phrases, sources, spans = [], [], []
+
+    def add(phrase, signal):
+        evidence = (signal or {}).get("evidence") or signal or {}
+        source = _evidence_source(evidence, all_evidence, artifact)
+        phrases.append(phrase)
+        if source not in sources:
+            sources.append(source)
+        span = evidence.get("exact_span")
+        if span and span not in spans:
+            spans.append(span)
+
+    period = document.get("planning_period")
+    if period:
+        active = active_planning_horizon(document, date.fromisoformat(as_of))
+        label = "Active planning period" if active else "Planning period"
+        add(f"{label}: {period['start_year']}-{period['end_year']}", period)
+
+    for field, label in (("publication_date", "Published"),
+                         ("revision_date", "revised"),
+                         ("effective_date", "effective")):
+        if document.get(field):
+            add(f"{label} {document[field]}", document.get("dates", {}).get(field))
+
+    return "; ".join(phrases), tuple(sources), tuple(spans)
+
+
+def _log_temporal_provenance(selection, conclusion, conclusion_source, conclusion_evidence, summaries, all_evidence):
+    """Keep exact lifecycle spans and non-rendered relationship evidence in JSONL."""
+    validations = []
+    conclusion_span = (conclusion_evidence or {}).get("exact_span")
+    validations.append(ClaimValidation(
+        claim_id=f"temporal-{uuid4().hex}",
+        claim_text=conclusion,
+        status=ClaimValidationStatus.SUPPORTED,
+        sources=(conclusion_source,),
+        supporting_spans=(conclusion_span,) if conclusion_span else (),
+        reason="Deterministic lifecycle selection result.",
+    ))
+    for claim_text, claim_sources, spans in summaries:
+        validations.append(ClaimValidation(
+            claim_id=f"temporal-{uuid4().hex}", claim_text=claim_text,
+            status=ClaimValidationStatus.SUPPORTED,
+            sources=claim_sources, supporting_spans=spans,
+            reason="Concise lifecycle metadata summary.",
+        ))
+    for edge in selection["relationships"]:
+        evidence = edge.get("evidence") or {}
+        source = _evidence_source(evidence, all_evidence)
+        if source:
+            validations.append(ClaimValidation(
+                claim_id=f"temporal-{uuid4().hex}",
+                claim_text=f"{edge['document_id']} {edge['type']} {edge['target_id']}",
+                status=ClaimValidationStatus.SUPPORTED,
+                sources=(source,), supporting_spans=(evidence["exact_span"],),
+                reason="Verified lifecycle relationship retained outside the UI.",
+            ))
+    validations.extend(ClaimValidation(
+        claim_id=f"temporal-{uuid4().hex}", claim_text=message,
+        status=ClaimValidationStatus.INSUFFICIENT_EVIDENCE,
+        reason="Lifecycle uncertainty retained outside supported findings.",
+    ) for message in selection["uncertainties"])
+    ProvenanceLogger().emit(validations)
+
+
+def render_temporal_answer(selection, store):
+    """Render a conclusion followed by at most two concise lifecycle bullets."""
     if not selection["artifacts"]:
         return ("No matching dated/versioned source was found for this temporal request in the indexed corpus.", "", [])
+
     lines, sources = [], []
+    all_evidence = selection["evidence"]
+
     def cite(artifact):
         if artifact not in sources:
             sources.append(artifact)
         return _citation(artifact)
-    terms = _terms(selection["question"])
-    all_evidence = selection["evidence"]
+
     first_artifact = selection["artifacts"][0]
     first_decision = selection["decisions"][0]
-    first_proof = first_decision.get("evidence") or {}
-    first_source = next((a for a in all_evidence
-                         if a.document_id == first_proof.get("document_id")
-                         and a.page_number == first_proof.get("page_number")
-                         and first_proof.get("exact_span")
-                         and first_proof["exact_span"] in a.original_text_chunk), first_artifact)
-    lines += [f"**Conclusion:** {first_artifact.document_id} - {first_artifact.title}: "
-              f"{first_decision['reason']} {cite(first_source)}", "",
-              "**Publication and planning evidence**", ""]
-    for artifact, decision in zip(selection["artifacts"], selection["decisions"]):
-        doc = selection["documents"][artifact.document_id]
-        proof = decision.get("evidence") or {}
-        reason_source = next((a for a in all_evidence if a.document_id == proof.get("document_id") and
-                              a.page_number == proof.get("page_number") and proof.get("exact_span") and
-                              proof["exact_span"] in a.original_text_chunk), artifact)
-        lines += [f"**{artifact.document_id} - {artifact.title}**", "",
-                  f"{lifecycle_label(doc)}. {cite(artifact)}"]
-        if artifact is not first_artifact:
-            lines.append(f"{decision['reason']} {cite(reason_source)}")
-        lines.append("")
-        # Date/status statements link to the exact metadata evidence location.
-        signals = list(doc.get("dates", {}).values()) + [doc.get("status_evidence"), doc.get("version_evidence"), doc.get("planning_period")]
-        metadata_spans = set()
-        for signal in signals:
-            if not isinstance(signal, dict):
-                continue
-            evidence = signal.get("evidence") or signal
-            span = evidence.get("exact_span") or ""
-            source = next((a for a in all_evidence if a.document_id == artifact.document_id and
-                           a.page_number == evidence.get("page_number") and span and span in a.original_text_chunk), None)
-            if source:
-                if span in metadata_spans:
-                    continue
-                metadata_spans.add(span)
-                lines.append(f'- Version/date evidence: “{span}” {cite(source)}')
-        spans = []
-        for candidate in all_evidence:
-            if candidate.document_id != artifact.document_id:
-                continue
-            for span in re.split(r"(?<=[.!?])\s+|\n\s*\n", candidate.original_text_chunk):
-                span = span.strip()
-                if not 35 <= len(span) <= 750 or re.search(r"table of contents|references cited|https?://", span, re.I):
-                    continue
-                matches = sum(term in span.casefold() for term in terms)
-                if terms and not matches:
-                    continue
-                action = bool(re.search(r"recommend|should|must|shall|priorit|control|protect|manage|harvest|restor|monitor", span, re.I))
-                normative = bool(re.search(r"\b(?:recommend\w*|should|must|shall|priorit\w*)\b", span, re.I))
-                spans.append((normative, matches, action, span, candidate))
-        spans.sort(key=lambda item: (-item[0], -item[1], -item[2]))
-        seen = set()
-        for _, _, _, span, candidate in spans:
-            if span in seen or span in metadata_spans:
-                continue
-            seen.add(span)
-            lines.append(f'- Source excerpt: “{span}” {cite(candidate)}')
-            if len(seen) == 1:
-                break
-        if not seen:
-            lines.append(f'- Source excerpt: “{artifact.original_text_chunk[:600]}” {cite(artifact)}')
-        lines.append("")
-    for edge in selection["relationships"]:
-        evidence = edge["evidence"]
-        artifact = next((a for a in all_evidence if a.document_id == edge["document_id"] and
-                         a.page_number == evidence["page_number"] and evidence["exact_span"] in a.original_text_chunk), None)
-        if artifact:
-            kind = {"revision_of": "is an explicit revision of (not proof of complete replacement)",
-                    "amendment_of": "amends portions of", "supplement_to": "supplements",
-                    "supersedes": "explicitly supersedes", "replaces": "explicitly replaces",
-                    "withdraws": "explicitly withdraws"}.get(edge["type"], edge["type"])
-            lines += [f"- {edge['document_id']} {kind} {edge['target_id']}: “{evidence['exact_span']}” {cite(artifact)}"]
-    if selection["uncertainties"]:
+    primary_edge = next((edge for edge in selection["relationships"]
+                         if edge["document_id"] == first_artifact.document_id
+                         and edge["type"] in {"supersedes", "replaces", "withdraws"}), None)
+    conclusion_evidence = (primary_edge or {}).get("evidence") or first_decision.get("evidence")
+    first_source = _evidence_source(conclusion_evidence, all_evidence, first_artifact)
+    conclusion = (f"{first_artifact.document_id} - {first_artifact.title}: "
+                  f"{first_decision['reason']}")
+    if primary_edge:
+        verb = {"supersedes": "explicitly supersedes",
+                "replaces": "explicitly replaces",
+                "withdraws": "explicitly withdraws"}[primary_edge["type"]]
+        conclusion += f" {primary_edge['document_id']} {verb} {primary_edge['target_id']}."
+    lines.append(f"**Conclusion:** {conclusion} {cite(first_source)}")
+
+    summaries = []
+    evidence_lines = []
+    for artifact in selection["artifacts"][:2]:
+        document = selection["documents"][artifact.document_id]
+        summary, summary_sources, spans = _brief_lifecycle_summary(
+            document, artifact, all_evidence, selection["as_of"]
+        )
+        if not summary:
+            continue
+        citations = " ".join(cite(source) for source in summary_sources)
+        claim_text = f"{artifact.document_id}: {summary}."
+        summaries.append((claim_text, summary_sources, spans))
+        evidence_lines.append(f"- **{artifact.document_id}:** {summary}. {citations}")
+    if evidence_lines:
+        lines.extend(["", "**Publication and planning evidence**", "", *evidence_lines])
+
+    displayed_ids = {artifact.document_id for artifact in selection["artifacts"][:2]}
+    visible_uncertainties = []
+    for message in selection["uncertainties"]:
+        mentioned = set(re.findall(r"\bDOC\d{3,}\b", message))
+        if not mentioned or mentioned & displayed_ids:
+            visible_uncertainties.append(message)
+    if visible_uncertainties:
         lines += ["", "**Unsupported facets**", "",
                   "*Status: INSUFFICIENT_EVIDENCE*", "",
-                  *[f"- {message}" for message in selection["uncertainties"]]]
-    preamble = f"{selection['intent'].capitalize()} source review within the indexed corpus, as of {selection['as_of']}. Dates alone do not prove authority or replacement."
+                  *[f"- {message}" for message in visible_uncertainties]]
+
+    _log_temporal_provenance(
+        selection, conclusion, first_source, conclusion_evidence, summaries, all_evidence
+    )
+    preamble = (f"{selection['intent'].capitalize()} source review within the indexed corpus, "
+                f"as of {selection['as_of']}. Dates alone do not prove authority or replacement.")
     return "\n".join(lines).strip(), preamble, sources

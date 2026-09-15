@@ -6,7 +6,8 @@ from data_models import DocumentSource, KnowledgeArtifact
 from database import KnowledgeStore
 from document_lifecycle import extract_lifecycles
 from document_targets import resolve_document_targets
-from temporal import detect_temporal_intent, active_planning_horizon, select_temporal_evidence
+from temporal import (active_planning_horizon, detect_temporal_intent, render_temporal_answer,
+                      select_temporal_evidence)
 from retrieval import retrieve_evidence, select_diverse_evidence
 
 Q4 = 'How does the 2022 Missouri Comprehensive Conservation Strategy differ from the 2015 Missouri State Wildlife Action Plan in its treatment of aquatic invasive species?'
@@ -72,7 +73,7 @@ def add_document(store, doc, texts):
         store.ingest_chunk(KnowledgeArtifact(doc['document_id'], doc['title'], '1', text), [1., 0.])
 
 
-def test_current_plan_beats_historical_publication():
+def test_current_plan_beats_historical_publication(tmp_path, monkeypatch):
     with KnowledgeStore(':memory:') as store:
         add_document(store, dict(document_id='DOC100', title='Wetland Guidance', year='2020'),
             ['Status: final. Wetland management guidance recommends monitoring.'])
@@ -81,7 +82,17 @@ def test_current_plan_beats_historical_publication():
         result = select_temporal_evidence('Which wetland guidance is current?', store, top_k=1, as_of='2026-09-15')
         assert result['selected_document_ids'] == ['DOC002']
         assert '2023-2028' in result['decisions'][0]['reason']
+        log = tmp_path / 'temporal-provenance.jsonl'
+        monkeypatch.setenv('V3_PROVENANCE_LOG', str(log))
+        answer, _, _ = render_temporal_answer(result, store)
 
+    assert answer.startswith('**Conclusion:**')
+    assert '- **DOC002:** Active planning period: 2023-2028' in answer
+    assert 'Source excerpt:' not in answer
+    assert 'Version/date evidence:' not in answer
+    records = [json.loads(line) for line in log.read_text(encoding='utf-8').splitlines()]
+    assert any('2023-2028' in (record['supporting_evidence_span'] or '')
+               and record['validation_status'] == 'SUPPORTED' for record in records)
 
 def test_diversity_preserves_cross_doc_duplicates_and_reports_capacity():
     artifacts = {i: KnowledgeArtifact(doc, 'Title', '1', 'Same canonical statement.')
