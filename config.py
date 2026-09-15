@@ -18,12 +18,8 @@ V3_ROOT = Path(__file__).resolve().parent
 # Chat Completions + strict JSON-schema integration.  UI input must never be
 # passed through as an arbitrary API model identifier.
 CHAT_MODEL_OPTIONS: tuple[str, ...] = (
-    "gpt-4.1-mini",
     "gpt-5.6-sol",
-    "gpt-4.1",
-    "gpt-4.1-nano",
-    "gpt-4o",
-    "gpt-4o-mini",
+    "gpt-4.1-mini",
 )
 
 
@@ -56,7 +52,7 @@ def _positive_float(name: str, default: float) -> float:
 @dataclass(frozen=True, slots=True)
 class ModelSettings:
     llm_model: str = field(
-        default_factory=lambda: os.environ.get("V3_LLM_MODEL", "gpt-4.1-mini")
+        default_factory=lambda: os.environ.get("V3_LLM_MODEL", "gpt-5.6-sol")
     )
     embedding_model: str = field(
         default_factory=lambda: os.environ.get(

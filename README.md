@@ -108,9 +108,9 @@ complete.
 streamlit run app.py
 ```
 
-The global **Generation model** selector includes `gpt-5.6-sol` (GPT-5.6 Sol)
-for Chatbot, AI Wiki regeneration, and live Evaluation. The default remains
-`gpt-4.1-mini`. Sol uses `reasoning_effort="none"` to preserve the existing
+The global **Generation model** selector offers `gpt-5.6-sol` (GPT-5.6 Sol) and
+`gpt-4.1-mini` for Chatbot, AI Wiki regeneration, and live Evaluation. Sol is
+the default and uses `reasoning_effort="none"` to preserve the existing
 short response budget and request timeout. It uses the same `OPENAI_API_KEY`;
 the associated OpenAI project must have access to the model.
 
