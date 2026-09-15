@@ -70,8 +70,8 @@ def test_comparison_and_management_templates_keep_citations_adjacent():
     ])
     compared, _ = validate_format_and_log(
         payload, {"K1": first, "K2": second}, query="Compare the two plans")
-    assert "### DOC001 — Wetland Plan" in compared
-    assert "### DOC002 — Bird Plan" in compared
+    assert "### DOC001: Wetland Plan" in compared
+    assert "### DOC002: Bird Plan" in compared
     assert "DOC001 ?" not in compared and "DOC002 ?" not in compared
     assert "Wetlands support birds. [DOC001" in compared
     managed, _ = validate_format_and_log(

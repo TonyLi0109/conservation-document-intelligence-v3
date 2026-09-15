@@ -60,7 +60,7 @@ class OutputFormatter:
                 titles[key] = claim_sources[0].title
         sections = []
         for key, items in groups.items():
-            heading = key if key == "Cross-document findings" else f"{key} \N{EM DASH} {titles[key]}"
+            heading = key if key == "Cross-document findings" else f"{key}: {titles[key]}"
             sections.append(f"### {heading}\n\n" + "\n".join(
                 self._claim_line(claim, claim_sources, "- ")
                 for claim, claim_sources in items))
