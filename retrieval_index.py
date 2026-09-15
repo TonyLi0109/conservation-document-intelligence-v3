@@ -8,6 +8,8 @@ as ingestion. Query text is tokenized and quoted; user FTS syntax is never run.
 
 from __future__ import annotations
 
+from pipeline_tracer import capture, active
+
 import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -143,13 +145,19 @@ def lexical_candidates(
     parameters.append(top_k)
     with store._lock:
         ensure_retrieval_index(store)
-        return [int(row[0]) for row in store.connection.execute(
-            f"SELECT {CHUNK_INDEX}.rowid FROM {CHUNK_INDEX} "
+        rows = list(store.connection.execute(
+            f"SELECT {CHUNK_INDEX}.rowid,bm25({CHUNK_INDEX}) FROM {CHUNK_INDEX} "
             f"JOIN knowledge_artifacts a ON a.artifact_id={CHUNK_INDEX}.rowid "
             f"WHERE {CHUNK_INDEX} MATCH ?{scope} "
             f"ORDER BY bm25({CHUNK_INDEX}),{CHUNK_INDEX}.rowid LIMIT ?",
             parameters,
-        )]
+        ))
+        if active():
+            capture('lexical_search', {'query': query_text, 'match_expression': query,
+                'document_ids': None if document_ids is None else docids, 'top_k': top_k,
+                'score_kind': 'sqlite_fts5_bm25', 'higher_is_better': False,
+                'hits': [{'artifact_id': int(r[0]), 'score': float(r[1])} for r in rows]})
+        return [int(row[0]) for row in rows]
 
 
 def document_candidates(store: KnowledgeStore, query_text: str, top_k: int = 8) -> list[str]:

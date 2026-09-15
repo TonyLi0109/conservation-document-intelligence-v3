@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pipeline_tracer import capture
+
 import json
 import logging
 import re
@@ -83,6 +85,7 @@ def _validated_claim(
                 claim.text,
                 evidence_id,
             )
+            capture('claim_rejection', {'claim': claim, 'reason': 'unknown_evidence_handle', 'evidence_id': evidence_id})
             return None
         referenced.append(artifact)
 
@@ -99,6 +102,7 @@ def _validated_claim(
                 claim.text,
                 span,
             )
+            capture('claim_rejection', {'claim': claim, 'reason': 'nonverbatim_supporting_span', 'span': span})
             return None
         supported_artifact_indexes.update(matching_indexes)
 
@@ -114,6 +118,7 @@ def _validated_claim(
             unsupported_ids,
             claim.supporting_spans,
         )
+        capture('claim_rejection', {'claim': claim, 'reason': 'unbacked_evidence_handles', 'evidence_ids': unsupported_ids})
         return None
     return claim, referenced
 
@@ -228,9 +233,12 @@ def validate_render_and_collect_sources(
 
     try:
         response = _parse_response(llm_response_json)
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
+        capture('validation_results', {'accepted': [], 'rejected': [], 'unsupported_facets': None,
+            'parse_error': str(error), 'input': llm_response_json})
         return VALIDATION_FAILED_MESSAGE, []
 
+    original_claims = list(response.claims)
     validated_claims: list[Claim] = []
     validated_sources: list[list[KnowledgeArtifact]] = []
     for claim in response.claims:
@@ -240,6 +248,10 @@ def validate_render_and_collect_sources(
             validated_claims.append(valid_claim)
             validated_sources.append(sources)
 
+    capture('validation_results', {'accepted': validated_claims,
+        'rejected': [c for c in response.claims if c not in validated_claims],
+        'unsupported_facets': response.unsupported_facets,
+        'input_status': response.status.value})
     if response.claims and not validated_claims:
         failed = SynthesisResponse(
             status=SynthesisStatus.VALIDATION_FAILED,
@@ -257,6 +269,9 @@ def validate_render_and_collect_sources(
             unsupported_facets=unsupported,
         )
 
+    capture('validation_results', {'accepted': validated_claims,
+        'rejected': [c for c in original_claims if c not in validated_claims],
+        'unsupported_facets': response.unsupported_facets, 'status': response.status.value})
     unique_sources: list[KnowledgeArtifact] = []
     seen_sources: set[tuple[str, str, str, str]] = set()
     for claim_sources in validated_sources:

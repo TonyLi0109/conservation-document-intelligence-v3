@@ -27,6 +27,9 @@ evaluation/reports/
 # Source documents are downloaded locally
 pdfs/
 
+# Request traces contain full prompts and retrieved source text
+traces/
+
 # Editor and OS metadata
 .vscode/
 .idea/

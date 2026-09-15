@@ -7,6 +7,8 @@ validation, and citation rendering remain application-owned V3 boundaries.
 
 from __future__ import annotations
 
+from pipeline_tracer import capture, trace_pipeline
+
 import argparse
 import hashlib
 import json
@@ -30,6 +32,7 @@ from prompts import SYSTEM_PROMPT, answer_length_constraints, build_synthesis_pr
 from source_catalog import load_source_catalog
 from validator import validate_render_and_collect_sources
 from validator import VALIDATION_FAILED_MESSAGE, format_artifact_location
+from validation_presentation import validate_format_and_log
 
 
 DEFAULT_TOP_K = SETTINGS.retrieval.top_k
@@ -271,6 +274,7 @@ def ask_chatbot_with_sources(
     return answer, sources
 
 
+@trace_pipeline
 def ask_chatbot_with_context(
     question: str,
     store: KnowledgeStore,
@@ -295,6 +299,8 @@ def ask_chatbot_with_context(
 
     original_question = question
     context = resolve_query(question, history, model=model)
+    capture('rewritten_query', context.standalone_query)
+    capture('routing', context.diagnostics())
     if diagnostics is not None:
         diagnostics.clear()
         diagnostics.update(context.diagnostics())
@@ -308,7 +314,16 @@ def ask_chatbot_with_context(
     question = context.standalone_query
 
     from temporal import detect_temporal_intent, select_temporal_evidence, render_temporal_answer
-    temporal_intent = detect_temporal_intent(original_question)
+    from document_targets import comparison_targets
+    target_metadata = [dict(r) for r in store.connection.execute(
+        'SELECT document_id,title,year FROM documents')] if hasattr(store, 'connection') else []
+    target_ids = comparison_targets(original_question, target_metadata)
+    temporal_intent = detect_temporal_intent(original_question, documents=target_metadata)
+    if target_ids and temporal_intent.mode == 'none':
+        capture('route', {'name': 'multi_doc_synthesis', 'target_document_ids': target_ids})
+        if diagnostics is not None:
+            diagnostics['route'] = 'multi_doc_synthesis'
+            diagnostics['target_document_ids'] = target_ids
     if temporal_intent.mode != "none" and hasattr(store, "connection"):
         anchors = []
         if context.uses_history and context.relation == "FOLLOW_UP":
@@ -332,6 +347,9 @@ def ask_chatbot_with_context(
                 from document_lifecycle import normalize_title
                 first_document = selection["documents"][selection["selected_document_ids"][0]]
                 diagnostics["active_subject"] = normalize_title(first_document["title"])
+        capture('route', 'temporal')
+        capture('temporal_selection', selection)
+        capture('reranked_evidence', selection['artifacts'])
         return render_temporal_answer(selection, store)
 
     comparison_answer = _direct_fiscal_year_comparison(question, store)
@@ -386,7 +404,7 @@ def ask_chatbot_with_context(
         artifacts = retrieve_evidence(
             store, question, query_embedding=query_embedding, top_k=top_k,
             entity=context.active_subject if context.relation == "FOLLOW_UP" else None,
-            diagnostics=trace,
+            diagnostics=trace, document_ids=target_ids or None,
         )
         if diagnostics is not None:
             diagnostics["retrieval"] = trace
@@ -425,12 +443,14 @@ def ask_chatbot_with_context(
             artifacts.append(artifact)
             if len(artifacts) >= top_k:
                 break
+    capture('reranked_evidence', artifacts)
     artifact_handles = {
         f"K{index}": artifact for index, artifact in enumerate(artifacts, start=1)
     }
     from compiled_context import add_compiled_context
     compiled_prompt, compiled_ids = add_compiled_context(store, question, artifact_handles)
     artifacts = list(artifact_handles.values())
+    capture('generation_evidence_handles', artifact_handles)
     if diagnostics is not None:
         diagnostics["compiled_knowledge_ids"] = compiled_ids
     if not artifact_handles:
@@ -458,6 +478,7 @@ def ask_chatbot_with_context(
             max_claims=max_claims,
             max_output_tokens=max_output_tokens,
         )
+        capture('synthesis_return', llm_response)
         envelope = json.loads(llm_response)
         expected_fields = {"preamble", "status", "claims", "unsupported_facets"}
         if not isinstance(envelope, dict) or set(envelope) != expected_fields:
@@ -476,6 +497,7 @@ def ask_chatbot_with_context(
         # supersession. Those assertions belong to the local temporal renderer.
         claims = envelope.get("claims", [])
         retained = [claim for claim in claims if not is_lifecycle_assertion(str(claim.get("text", "")))]
+        capture('lifecycle_claim_filter', {'input': claims, 'retained': retained, 'rejected': [c for c in claims if c not in retained]})
         if len(retained) != len(claims):
             if not retained:
                 raise ValueError("Lifecycle assertions require verified lifecycle evidence")
@@ -484,13 +506,15 @@ def ask_chatbot_with_context(
             envelope["unsupported_facets"] = list(envelope.get("unsupported_facets", [])) + [
                 "Document currentness or replacement requires a separate source-version check."
             ]
-        answer, sources = validate_render_and_collect_sources(
-            json.dumps(envelope, ensure_ascii=False), artifact_handles
+        answer, sources = validate_format_and_log(
+            json.dumps(envelope, ensure_ascii=False), artifact_handles,
+            query=original_question,
         )
         if answer == VALIDATION_FAILED_MESSAGE:
             raise ValueError("all generated claims failed provenance validation")
         return answer, preamble, sources
-    except Exception:
+    except Exception as error:
+        capture('synthesis_fallback', {'type': type(error).__name__, 'message': str(error)})
         logging.exception(
             "Grounded synthesis failed; returning canonical retrieval fallback"
         )
@@ -884,7 +908,8 @@ def search_corpus(
         raise ValueError("query must be a non-empty string")
     _require_store_interface(store, "retrieve")
     from temporal import detect_temporal_intent, select_temporal_evidence
-    intent = detect_temporal_intent(query)
+    intent = detect_temporal_intent(query, documents=[dict(r) for r in store.connection.execute(
+        'SELECT document_id,title,year FROM documents')] if hasattr(store, 'connection') else [])
     if intent.mode != "none" and hasattr(store, "connection"):
         return select_temporal_evidence(query, store, top_k=top_k, intent=intent)["artifacts"]
     if hasattr(store, "connection"):

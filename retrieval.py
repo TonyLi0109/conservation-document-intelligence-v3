@@ -6,6 +6,8 @@ reranking. No lifecycle authority is inferred here; temporal.py owns that policy
 """
 from __future__ import annotations
 
+from pipeline_tracer import capture, active
+
 from collections import Counter
 import re
 import time
@@ -140,6 +142,42 @@ def _duplicates(left, right, threshold):
     return len(left[1] & right[1]) / min(len(left[1]), len(right[1])) >= threshold
 
 
+def select_diverse_evidence(ranked_ids, artifacts, top_k, target_ids, *, duplicate_threshold=0.92, decay=1.0):
+    """Reserve one eligible chunk per explicit target, then decay repeat votes.
+
+    The score is an ordinal utility, not a provenance confidence. Preserve
+    canonical objects. Cross-document duplicates remain independently citable.
+    Coverage is bounded by top_k and available candidates; report any gap.
+    """
+    remaining = list(ranked_ids)
+    rank = {item: position for position, item in enumerate(remaining, 1)}
+    selected, suppressed, decisions = [], [], []
+    counts = Counter()
+    signatures = {}
+    while remaining and len(selected) < top_k:
+        unseen = set(target_ids) - set(counts)
+        eligible = [i for i in remaining if artifacts[i].document_id in unseen]
+        pool = eligible or remaining
+        def utility(item):
+            return 1.0 / (60 + rank[item]) / (1.0 + decay * counts[artifacts[item].document_id])
+        item = max(pool, key=lambda i: (utility(i), -rank[i]))
+        remaining.remove(item)
+        doc_id = artifacts[item].document_id
+        signature = _signature(artifacts[item].original_text_chunk)
+        if any(_duplicates(signature, previous, duplicate_threshold) for previous in signatures.get(doc_id, [])):
+            suppressed.append(item)
+            continue
+        decisions.append({'artifact_id': item, 'document_id': doc_id,
+                          'marginal_score': utility(item), 'previous_count': counts[doc_id],
+                          'coverage_reservation': bool(eligible)})
+        selected.append(item)
+        counts[doc_id] += 1
+        signatures.setdefault(doc_id, []).append(signature)
+    return selected, suppressed, {'selection': decisions,
+        'missing_target_ids': sorted(set(target_ids) - set(counts)),
+        'capacity_limited': top_k < len(set(target_ids)), 'decay': decay}
+
+
 def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
                       mode="hybrid_rerank", diagnostics=None, entity=None,
                       document_ids=None):
@@ -148,7 +186,7 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
     Modes expose ablations: dense and lexical are raw rankers; hybrid adds equal
     RRF votes including document-first candidates; hybrid_rerank additionally
     applies inspectable relevance/outcome signals and conservative deduplication.
-    Explicit document_ids is a hard caller constraint; inferred metadata is soft.
+    Explicit document_ids and uniquely resolved comparison titles are hard scopes; other inferred metadata stays soft.
     """
     from retrieval_index import ensure_retrieval_index, lexical_candidates, document_candidates
     if not isinstance(query, str) or not query.strip():
@@ -170,11 +208,23 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
     trace = {"query": query, "query_type": kind, "expanded_query": enriched,
              "alias_expansions": expansions, "mode": mode,
              "dense_available": query_embedding is not None}
+    from document_targets import comparison_targets
+    explicit_targets = comparison_targets(query, [dict(r) for r in store.connection.execute(
+        'SELECT document_id,title,year FROM documents')])
     allow = set(document_ids) if document_ids is not None else None
+    if explicit_targets:
+        allow = set(explicit_targets) if allow is None else allow & set(explicit_targets)
     # An explicitly requested stable document ID scopes the lookup precisely.
     named_ids = set(re.findall(r"\bDOC\d+\b", query.upper()))
     if named_ids:
         allow = named_ids if allow is None else allow & named_ids
+    diversity_targets = allow if allow and len(allow) > 1 and re.search(
+        r'\b(?:compar\w*|differ\w*|versus|vs|between|contrast\w*)\b', query, re.I) else set()
+    trace['target_document_ids'] = sorted(diversity_targets)
+    capture('retrieval_scope', {'query': query, 'query_type': kind, 'expanded_query': enriched,
+        'alias_groups': groups, 'entity': entity, 'requested_document_ids': document_ids,
+        'effective_document_ids': None if allow is None else sorted(allow),
+        'fusion': 'equal rank votes: recovered lexical + dense', 'rrf_k': settings.rrf_k})
     if allow is not None and not allow:
         if diagnostics is not None:
             diagnostics.update({**trace, "final_artifact_ids": [], "total_ms": 0.0})
@@ -219,6 +269,14 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
     else:
         document_pool = []
         fused = (dense if mode == "dense" else lexical)[:max(top_k, settings.fusion_top_k)]
+    if diversity_targets and mode == 'hybrid_rerank':
+        # Recover scoped candidates BEFORE fusion/rerank truncation can starve a target.
+        fused = list(dict.fromkeys([*fused, *document_pool]))
+    if active():
+        capture('initial_retrieval', {'dense_ids': dense, 'lexical_ids': lexical,
+            'document_candidates': doc_rank, 'document_chunk_ids': document_pool,
+            'fused_ids': fused, 'chunks': [{'artifact_id': i, 'chunk': a} for i, a in zip(fused, store._artifacts_by_ranked_ids(fused))],
+            'raw_scores': 'See dense_search and lexical_search events for each actual search, including scope.'})
     retrieved_end = time.perf_counter()
     if mode != "hybrid_rerank":
         final = fused[:top_k]
@@ -236,8 +294,12 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
                       "total_ms": round((time.perf_counter() - started) * 1000, 3)})
         if diagnostics is not None:
             diagnostics.update(trace)
+        capture('retrieval_ranking', trace)
+        capture('reranked_evidence', result)
         return result
     reranked = fused[:max(top_k, settings.rerank_top_k)] if mode == "hybrid_rerank" else fused
+    if diversity_targets:
+        reranked = list(dict.fromkeys([*reranked, *document_pool]))
     artifacts = store._artifacts_by_ranked_ids(reranked)
     by_id = dict(zip(reranked, artifacts))
     metadata = {str(row["document_id"]): dict(row) for row in store.connection.execute("SELECT document_id,title,agency,topic,year FROM documents")}
@@ -285,16 +347,22 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
                     f["fused_rank"])
         reranked.sort(key=key)
     rerank_end = time.perf_counter()
-    final, signatures, suppressed = [], [], []
-    for artifact_id in reranked:
-        signature = _signature(by_id[artifact_id].original_text_chunk)
-        if mode == "hybrid_rerank" and any(_duplicates(signature, prior, settings.duplicate_threshold) for prior in signatures):
-            suppressed.append(artifact_id)
-            continue
-        final.append(artifact_id)
-        signatures.append(signature)
-        if len(final) >= top_k:
-            break
+    if diversity_targets:
+        final, suppressed, diversity = select_diverse_evidence(
+            reranked, by_id, top_k, diversity_targets,
+            duplicate_threshold=settings.duplicate_threshold)
+        trace['diversity'] = diversity
+    else:
+        final, signatures, suppressed = [], [], []
+        for artifact_id in reranked:
+            signature = _signature(by_id[artifact_id].original_text_chunk)
+            if mode == "hybrid_rerank" and any(_duplicates(signature, prior, settings.duplicate_threshold) for prior in signatures):
+                suppressed.append(artifact_id)
+                continue
+            final.append(artifact_id)
+            signatures.append(signature)
+            if len(final) >= top_k:
+                break
     finished = time.perf_counter()
     trace.update({"dense_candidates": dense, "lexical_candidates": lexical,
                   "document_candidates": doc_rank, "document_chunk_candidates": document_pool,
@@ -310,4 +378,6 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
                   "total_ms": round((finished - started) * 1000, 3)})
     if diagnostics is not None:
         diagnostics.update(trace)
+    capture('retrieval_ranking', trace)
+    capture('reranked_evidence', [by_id[i] for i in final])
     return [by_id[i] for i in final]

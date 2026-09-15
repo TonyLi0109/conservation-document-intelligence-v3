@@ -258,6 +258,31 @@ class Claim:
             raise ValueError("supporting_spans must not contain duplicates")
 
 
+class ClaimValidationStatus(str, Enum):
+    """Machine-readable outcome for one atomic claim or requested facet.
+
+    PARTIALLY_SUPPORTED is still fail-closed: it records that some, but not all,
+    required provenance associations validated. It does not authorize rendering.
+    """
+
+    SUPPORTED = "SUPPORTED"
+    PARTIALLY_SUPPORTED = "PARTIALLY_SUPPORTED"
+    UNSUPPORTED = "UNSUPPORTED"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimValidation:
+    """Internal validation detail used by logging and presentation layers."""
+
+    claim_id: str
+    claim_text: str
+    status: ClaimValidationStatus
+    sources: tuple[KnowledgeArtifact, ...] = ()
+    supporting_spans: tuple[str, ...] = ()
+    reason: str = ""
+
+
 class SynthesisStatus(str, Enum):
     """Permitted outcomes of evidence-grounded synthesis."""
 

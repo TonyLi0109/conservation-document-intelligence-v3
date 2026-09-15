@@ -14,7 +14,7 @@ import json
 import re
 
 
-EXTRACTOR_VERSION = "v3-lifecycle"
+EXTRACTOR_VERSION = "v3-lifecycle-planning-1"
 YEAR = r"(?:19|20)\d{2}"
 MONTHS = {name.casefold(): index for index, name in enumerate((
     "January", "February", "March", "April", "May", "June", "July", "August",
@@ -233,6 +233,34 @@ def _own_advance_header(span):
                 and re.search(r"[-\u2013\u2014:\ufffd](?:C)?\s*$", prefix))
 
 
+
+# A range is operational metadata only when explicitly attached to this plan.
+PLANNING_RANGE = re.compile(r"\b(?P<start>20\d{2})\s*(?:[-\u2013\u2014]|to|through)\s*(?P<end>20\d{2})\b", re.I)
+PLANNING_OWN = re.compile(
+    r"\b(?:this|the present)\s+(?:\w+\s+){0,4}plan\s+"
+    r"(?:includes?|covers?|spans?|is for|applies to)\s+(?:the\s+)?(?:years?\s+)?$", re.I)
+
+
+def extract_planning_period(chunks):
+    """Keep verbatim evidence; reject reversed, external, and conflicting ranges."""
+    periods = []
+    for span, evidence in _sentences(chunks):
+        for match in PLANNING_RANGE.finditer(span):
+            prefix = span[:match.start()]
+            own = PLANNING_OWN.search(prefix)
+            label = re.fullmatch(r"\s*(?:planning period|planning horizon|plan period|plan timeframe)\s*:?\s*", prefix, re.I)
+            if not (own or label and _front_page(evidence)):
+                continue
+            if int(match['start']) > int(match['end']):
+                continue
+            start = own.start() if own else 0
+            periods.append({'start_year': int(match['start']), 'end_year': int(match['end']),
+                            'source': 'explicit', 'confidence': 'high',
+                            'evidence': {**evidence, 'exact_span': span[start:match.end()]}})
+    unique = {(p['start_year'], p['end_year']) for p in periods}
+    return (periods[0] if len(unique) == 1 else None), len(unique) > 1
+
+
 def _extract_document(metadata, chunks):
     docid = metadata["document_id"]
     result = {"document_id": docid, "title": metadata["title"], "agency": metadata.get("agency", ""),
@@ -240,6 +268,9 @@ def _extract_document(metadata, chunks):
               "effective_date": None, "version": None, "status": "unknown", "kind": _kind(metadata["title"]),
               "family_id": "document:" + docid, "family_source": "unknown", "dates": {},
               "relations": [], "warnings": [], "signals": [], "status_evidence": None, "version_evidence": None}
+    result['planning_period'], planning_conflict = extract_planning_period(chunks)
+    if planning_conflict:
+        result['warnings'].append('Conflicting explicit planning periods; no operational horizon selected')
     candidates = defaultdict(list)
     catalog = parse_date(str(metadata.get("year", "")))
     if catalog:

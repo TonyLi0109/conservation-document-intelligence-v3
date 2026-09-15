@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pipeline_tracer import capture
+
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -244,7 +246,7 @@ def call_structured_llm(
         if selected_model == "gpt-5.6-sol"
         else {"temperature": 0}
     )
-    raw_response = _client().chat.completions.with_raw_response.create(
+    request = dict(
         model=selected_model,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -257,12 +259,16 @@ def call_structured_llm(
             "json_schema": schema_payload,
         },
     )
+    capture('llm_context_payload', request)
+    raw_response = _client().chat.completions.with_raw_response.create(**request)
     payload: Any = raw_response.http_response.json()
+    capture('llm_raw_response', payload)
     choices = payload.get("choices") if isinstance(payload, dict) else None
     if not isinstance(choices, list) or not choices:
         raise RuntimeError("LLM API response omitted completion choices")
     first_choice = choices[0]
     message = first_choice.get("message") if isinstance(first_choice, dict) else None
+    capture('draft_answer', message.get('content') if isinstance(message, dict) else None)
     finish_reason = (
         first_choice.get("finish_reason") if isinstance(first_choice, dict) else None
     )

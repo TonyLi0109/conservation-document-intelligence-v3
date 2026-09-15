@@ -6,6 +6,8 @@ Non-temporal retrieval keeps its existing ranking. No global recency multiplier.
 
 from __future__ import annotations
 
+from pipeline_tracer import capture, active
+
 from dataclasses import dataclass
 from datetime import date
 import calendar
@@ -22,8 +24,11 @@ class TemporalIntent:
     as_of: str | None = None
 
 
-def detect_temporal_intent(question: str) -> TemporalIntent:
-    text = question.casefold()
+def detect_temporal_intent(question: str, *, documents=()) -> TemporalIntent:
+    from document_targets import resolve_document_targets
+    targets, residual = resolve_document_targets(question, documents)
+    # Entity years describe editions, not a request to rank versions by time.
+    text = residual if targets else question.casefold()
     text = re.sub(r"\b(?:electric(?:al)?|water|ocean|river) current\b|\bcurrent (?:velocity|speed|flow|strength|density|amperage)\b", "physical flow", text)
     years = tuple(dict.fromkeys(re.findall(r"\b(?:19|20)\d{2}\b", text)))
     as_of = re.search(r"\bas of\s+((?:19|20)\d{2}(?:-\d{2}(?:-\d{2})?)?)", text)
@@ -69,6 +74,14 @@ def _document_date(document):
         if value:
             return value
     return None
+
+
+def active_planning_horizon(document, when):
+    """Inclusive calendar-year horizon; never imply publication or supersession."""
+    period = document.get('planning_period')
+    return bool(period and period.get('source') == 'explicit'
+                and period['start_year'] <= when.year <= period['end_year']
+                and _active(document, when))
 
 
 def _active(document, when):
@@ -119,7 +132,8 @@ def _doc_artifacts(store, document_ids):
 def select_temporal_evidence(question, store, *, top_k=5, intent=None,
                              anchor_document_ids=(), as_of=None):
     from document_lifecycle import get_lifecycles
-    intent = intent or detect_temporal_intent(question)
+    intent = intent or detect_temporal_intent(question, documents=[dict(r) for r in
+        store.connection.execute('SELECT document_id,title,year FROM documents')])
     policy_mode = "current" if intent.as_of else intent.mode
     if top_k < 1:
         raise ValueError("top_k must be positive")
@@ -222,13 +236,22 @@ def select_temporal_evidence(question, store, *, top_k=5, intent=None,
         if policy_mode == "latest":
             return (-stamp, relevance, doc_id)
         role = 0 if doc.get("kind") in {"guidance", "strategy"} else 1
-        # Document replacement > final status > relevance. Recency only breaks
-        # ties within a family below; there is no universal newest-is-authority.
+        # Preserve the existing order except for verified active planning horizons.
+        # A horizon never rescues a replaced/revised source; recency stays within-family.
         status = 0 if doc.get("status") == "final" else 1
         replaced = 1 if doc_id in full_replacements else 0
         revised = 1 if doc_id in revisions else 0
-        return (replaced, role if guidance_query and policy_mode == "current" else 0, status, revised, relevance, doc_id)
+        return (replaced, -(active_planning_horizon(doc, when) and not revised),
+                role if guidance_query and policy_mode == "current" else 0,
+                status, revised, relevance, doc_id)
 
+    if active():
+        capture('temporal_ranking', {'policy_mode': policy_mode, 'as_of': when.isoformat(),
+            'candidate_relevance_ranks': rank, 'seeds': sorted(seeds),
+            'eligible_before_sort': eligible[:],
+            'ordering_keys': {d: ordering(d) for d in eligible},
+            'date_inputs': {d: {f: index[d].get(f) for f in
+                ('publication_date', 'revision_date', 'effective_date', 'status', 'kind', 'family_id')} for d in seeds}})
     eligible.sort(key=ordering)
     if policy_mode in {"current", "latest"}:
         # Sort members only within their current family positions, preserving
@@ -240,6 +263,8 @@ def select_temporal_evidence(question, store, *, top_k=5, intent=None,
             members = [eligible[i] for i in places]
             members.sort(key=lambda doc_id: (
                 doc_id in full_replacements, not _active(index[doc_id], when),
+                -(active_planning_horizon(index[doc_id], when) and doc_id not in revisions)
+                if policy_mode == 'current' else 0,
                 index[doc_id].get("status") != "final", doc_id in revisions,
                 -(_document_date(index[doc_id]).toordinal() if _document_date(index[doc_id]) else 0),
                 rank.get(doc_id, len(rank)), doc_id))
@@ -281,6 +306,9 @@ def select_temporal_evidence(question, store, *, top_k=5, intent=None,
             reason = "Partial update: read together with its base document."
         elif any(edge["document_id"] == doc_id and edge["type"] == "revision_of" for edge in active_edges):
             reason = "Documented revision; preferred for the revised material without assuming every earlier section is obsolete."
+        elif policy_mode == 'current' and active_planning_horizon(doc, when):
+            period = doc['planning_period']
+            reason = f"The explicit {period['start_year']}-{period['end_year']} planning period covers the requested date; this does not establish replacement of other sources."
         else:
             reason = "Selected by topic, available status and within-family date; formal currentness is not established by recency alone."
         successor = full_replacements.get(doc_id) or revisions.get(doc_id)
@@ -288,7 +316,8 @@ def select_temporal_evidence(question, store, *, top_k=5, intent=None,
                             edge["document_id"] == successor and edge["type"] in (
                                 {"supersedes", "replaces", "withdraws"} if doc_id in full_replacements else {"revision_of"})), None)
         decisions.append({"document_id": doc_id, "reason": reason,
-                          "evidence": reason_edge["evidence"] if reason_edge else None})
+                          "evidence": reason_edge["evidence"] if reason_edge else (
+                              doc['planning_period']['evidence'] if active_planning_horizon(doc, when) else None)})
         for warning in doc.get("warnings", []):
             for raw, readable in (("publication_date", "publication date"), ("revision_date", "revision date"),
                                   ("effective_date", "effective date"), ("metadata_inferred", "catalog metadata"),
@@ -310,6 +339,9 @@ def lifecycle_label(document):
             origin = {"explicit": "document text", "metadata_inferred": "catalog metadata",
                       "title_inferred": "title cue"}.get(signal.get("source"), "source unknown")
             fields.append(f"{label} {document[key]} ({origin})")
+    period = document.get('planning_period')
+    if period:
+        fields.append(f"Planning period {period['start_year']}-{period['end_year']} (document text)")
     if document.get("version"):
         fields.append(f"Version {document['version']}")
     if document.get("status") not in {None, "unknown"}:
@@ -351,17 +383,30 @@ def render_temporal_answer(selection, store):
         return _citation(artifact)
     terms = _terms(selection["question"])
     all_evidence = selection["evidence"]
+    first_artifact = selection["artifacts"][0]
+    first_decision = selection["decisions"][0]
+    first_proof = first_decision.get("evidence") or {}
+    first_source = next((a for a in all_evidence
+                         if a.document_id == first_proof.get("document_id")
+                         and a.page_number == first_proof.get("page_number")
+                         and first_proof.get("exact_span")
+                         and first_proof["exact_span"] in a.original_text_chunk), first_artifact)
+    lines += [f"**Conclusion:** {first_artifact.document_id} - {first_artifact.title}: "
+              f"{first_decision['reason']} {cite(first_source)}", "",
+              "**Publication and planning evidence**", ""]
     for artifact, decision in zip(selection["artifacts"], selection["decisions"]):
         doc = selection["documents"][artifact.document_id]
         proof = decision.get("evidence") or {}
         reason_source = next((a for a in all_evidence if a.document_id == proof.get("document_id") and
                               a.page_number == proof.get("page_number") and proof.get("exact_span") and
                               proof["exact_span"] in a.original_text_chunk), artifact)
-        lines += [f"**{artifact.document_id} — {artifact.title}**", "",
-                  f"{lifecycle_label(doc)}. {cite(artifact)}",
-                  f"{decision['reason']} {cite(reason_source)}", ""]
+        lines += [f"**{artifact.document_id} - {artifact.title}**", "",
+                  f"{lifecycle_label(doc)}. {cite(artifact)}"]
+        if artifact is not first_artifact:
+            lines.append(f"{decision['reason']} {cite(reason_source)}")
+        lines.append("")
         # Date/status statements link to the exact metadata evidence location.
-        signals = list(doc.get("dates", {}).values()) + [doc.get("status_evidence"), doc.get("version_evidence")]
+        signals = list(doc.get("dates", {}).values()) + [doc.get("status_evidence"), doc.get("version_evidence"), doc.get("planning_period")]
         metadata_spans = set()
         for signal in signals:
             if not isinstance(signal, dict):
@@ -396,7 +441,7 @@ def render_temporal_answer(selection, store):
                 continue
             seen.add(span)
             lines.append(f'- Source excerpt: “{span}” {cite(candidate)}')
-            if len(seen) == 2:
+            if len(seen) == 1:
                 break
         if not seen:
             lines.append(f'- Source excerpt: “{artifact.original_text_chunk[:600]}” {cite(artifact)}')
@@ -412,6 +457,8 @@ def render_temporal_answer(selection, store):
                     "withdraws": "explicitly withdraws"}.get(edge["type"], edge["type"])
             lines += [f"- {edge['document_id']} {kind} {edge['target_id']}: “{evidence['exact_span']}” {cite(artifact)}"]
     if selection["uncertainties"]:
-        lines += ["", *[f"- {message}" for message in selection["uncertainties"]]]
+        lines += ["", "**Unsupported facets**", "",
+                  "*Status: INSUFFICIENT_EVIDENCE*", "",
+                  *[f"- {message}" for message in selection["uncertainties"]]]
     preamble = f"{selection['intent'].capitalize()} source review within the indexed corpus, as of {selection['as_of']}. Dates alone do not prove authority or replacement."
     return "\n".join(lines).strip(), preamble, sources

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pipeline_tracer import capture, active
+
 import math
 import hashlib
 import json
@@ -241,6 +243,9 @@ class ExactVectorStore:
             count = min(top_k, int(scores.size))
             candidates = np.argpartition(scores, -count)[-count:]
             ranked = candidates[np.argsort(-scores[candidates], kind="stable")]
+            if active():
+                capture('dense_search', {'top_k': top_k, 'score_kind': 'cosine_similarity', 'higher_is_better': True,
+                    'hits': [{'artifact_id': int(self._ids[i]), 'score': float(scores[i])} for i in ranked]})
             return [int(self._ids[index]) for index in ranked]
 
 
