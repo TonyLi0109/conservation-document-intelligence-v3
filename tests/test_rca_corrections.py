@@ -79,17 +79,21 @@ def test_current_plan_beats_historical_publication(tmp_path, monkeypatch):
             ['Status: final. Wetland management guidance recommends monitoring.'])
         add_document(store, dict(document_id='DOC002', title='Wetland Program Plan', year='2010'),
             ['Planning period: 2023-2028. Wetland management guidance recommends monitoring.'])
-        result = select_temporal_evidence('Which wetland guidance is current?', store, top_k=1, as_of='2026-09-15')
-        assert result['selected_document_ids'] == ['DOC002']
+        result = select_temporal_evidence('Which wetland guidance is current?', store, top_k=2, as_of='2026-09-15')
+        assert result['selected_document_ids'][:2] == ['DOC002', 'DOC100']
         assert '2023-2028' in result['decisions'][0]['reason']
         log = tmp_path / 'temporal-provenance.jsonl'
         monkeypatch.setenv('V3_PROVENANCE_LOG', str(log))
-        answer, _, _ = render_temporal_answer(result, store)
+        answer, _, sources = render_temporal_answer(result, store)
 
     assert answer.startswith('**Conclusion:**')
     assert '- **DOC002:** Active planning period: 2023-2028' in answer
     assert 'Source excerpt:' not in answer
     assert 'Version/date evidence:' not in answer
+    assert 'DOC100' not in answer
+    assert [source.document_id for source in sources] == ['DOC002']
+    assert 'operational horizon, not a publication or revision date' in answer
+    assert "DOC002's separate revision date is not established" in answer
     records = [json.loads(line) for line in log.read_text(encoding='utf-8').splitlines()]
     assert any('2023-2028' in (record['supporting_evidence_span'] or '')
                and record['validation_status'] == 'SUPPORTED' for record in records)

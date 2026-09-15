@@ -410,7 +410,50 @@ def _brief_lifecycle_summary(document, artifact, all_evidence, as_of):
     return "; ".join(phrases), tuple(sources), tuple(spans)
 
 
-def _log_temporal_provenance(selection, conclusion, conclusion_source, conclusion_evidence, summaries, all_evidence):
+def _display_artifacts(selection):
+    """Choose only documents that help explain the temporal conclusion."""
+    artifacts = selection["artifacts"]
+    if len(artifacts) < 2:
+        return artifacts
+    if selection["intent"] == "comparison":
+        return artifacts[:2]
+    first_id = artifacts[0].document_id
+    related_ids = {
+        endpoint
+        for edge in selection["relationships"]
+        if first_id in {edge["document_id"], edge["target_id"]}
+        for endpoint in (edge["document_id"], edge["target_id"])
+    }
+    related = next((artifact for artifact in artifacts[1:]
+                    if artifact.document_id in related_ids), None)
+    return [artifacts[0], related] if related else artifacts[:1]
+
+
+def _presentation_uncertainties(selection, displayed_artifacts):
+    """Expose answer-relevant gaps; retain parser diagnostics in provenance logs."""
+    first = displayed_artifacts[0]
+    document = selection["documents"][first.document_id]
+    messages = []
+    if (selection["intent"] == "current"
+            and active_planning_horizon(document, date.fromisoformat(selection["as_of"]))):
+        missing = [label for field, label in (("publication_date", "publication date"),
+                                               ("revision_date", "revision date"))
+                   if not document.get(field)]
+        if missing:
+            label = ("publication and revision dates" if len(missing) == 2
+                     else missing[0])
+            verb = "are" if len(missing) == 2 else "is"
+            messages.append(
+                f"{first.document_id}'s separate {label} {verb} not established in the indexed evidence; "
+                "the currentness conclusion rests on its active planning period."
+            )
+    critical = ("No non-draft", "Conflicting replacement relationships",
+                "Similar titles or different dates", "applicability within that period is uncertain")
+    messages.extend(message for message in selection["uncertainties"]
+                    if message.startswith(critical) and message not in messages)
+    return messages
+
+def _log_temporal_provenance(selection, conclusion, conclusion_source, conclusion_evidence, summaries, presentation_uncertainties, all_evidence):
     """Keep exact lifecycle spans and non-rendered relationship evidence in JSONL."""
     validations = []
     conclusion_span = (conclusion_evidence or {}).get("exact_span")
@@ -444,7 +487,7 @@ def _log_temporal_provenance(selection, conclusion, conclusion_source, conclusio
         claim_id=f"temporal-{uuid4().hex}", claim_text=message,
         status=ClaimValidationStatus.INSUFFICIENT_EVIDENCE,
         reason="Lifecycle uncertainty retained outside supported findings.",
-    ) for message in selection["uncertainties"])
+    ) for message in dict.fromkeys([*selection["uncertainties"], *presentation_uncertainties]))
     ProvenanceLogger().emit(validations)
 
 
@@ -468,8 +511,20 @@ def render_temporal_answer(selection, store):
                          and edge["type"] in {"supersedes", "replaces", "withdraws"}), None)
     conclusion_evidence = (primary_edge or {}).get("evidence") or first_decision.get("evidence")
     first_source = _evidence_source(conclusion_evidence, all_evidence, first_artifact)
-    conclusion = (f"{first_artifact.document_id} - {first_artifact.title}: "
-                  f"{first_decision['reason']}")
+    first_document = selection["documents"][first_artifact.document_id]
+    if (selection["intent"] == "current"
+            and active_planning_horizon(first_document, date.fromisoformat(selection["as_of"]))):
+        period = first_document["planning_period"]
+        conclusion = (
+            f"{first_artifact.document_id} - {first_artifact.title} provides the most current "
+            f"operational guidance among the retrieved relevant sources because its explicit "
+            f"{period['start_year']}-{period['end_year']} planning period includes "
+            f"{selection['as_of']}. This planning period is an operational horizon, "
+            "not a publication or revision date."
+        )
+    else:
+        conclusion = (f"{first_artifact.document_id} - {first_artifact.title}: "
+                      f"{first_decision['reason']}")
     if primary_edge:
         verb = {"supersedes": "explicitly supersedes",
                 "replaces": "explicitly replaces",
@@ -479,7 +534,8 @@ def render_temporal_answer(selection, store):
 
     summaries = []
     evidence_lines = []
-    for artifact in selection["artifacts"][:2]:
+    displayed_artifacts = _display_artifacts(selection)
+    for artifact in displayed_artifacts:
         document = selection["documents"][artifact.document_id]
         summary, summary_sources, spans = _brief_lifecycle_summary(
             document, artifact, all_evidence, selection["as_of"]
@@ -493,19 +549,15 @@ def render_temporal_answer(selection, store):
     if evidence_lines:
         lines.extend(["", "**Publication and planning evidence**", "", *evidence_lines])
 
-    displayed_ids = {artifact.document_id for artifact in selection["artifacts"][:2]}
-    visible_uncertainties = []
-    for message in selection["uncertainties"]:
-        mentioned = set(re.findall(r"\bDOC\d{3,}\b", message))
-        if not mentioned or mentioned & displayed_ids:
-            visible_uncertainties.append(message)
+    visible_uncertainties = _presentation_uncertainties(selection, displayed_artifacts)
     if visible_uncertainties:
         lines += ["", "**Unsupported facets**", "",
                   "*Status: INSUFFICIENT_EVIDENCE*", "",
                   *[f"- {message}" for message in visible_uncertainties]]
 
     _log_temporal_provenance(
-        selection, conclusion, first_source, conclusion_evidence, summaries, all_evidence
+        selection, conclusion, first_source, conclusion_evidence, summaries,
+        visible_uncertainties, all_evidence
     )
     preamble = (f"{selection['intent'].capitalize()} source review within the indexed corpus, "
                 f"as of {selection['as_of']}. Dates alone do not prove authority or replacement.")
