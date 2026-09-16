@@ -81,6 +81,29 @@ def test_comparison_and_management_templates_keep_citations_adjacent():
     assert "2. Monitoring detects change. [DOC002" in managed
 
 
+def test_management_template_owns_list_numbering():
+    first = artifact(text="1. Map wetland baselines.")
+    second = artifact("DOC002", "Runoff Plan", "3", None,
+                      "2) Install runoff controls.")
+    payload = envelope([
+        claim(first.original_text_chunk, "K1", first.original_text_chunk),
+        claim(second.original_text_chunk, "K2", second.original_text_chunk),
+    ])
+
+    rendered, _ = validate_format_and_log(
+        payload, {"K1": first, "K2": second},
+        query="What management actions should I implement? Provide next steps.",
+    )
+
+    assert "- Map wetland baselines." in rendered
+    assert "- Install runoff controls." in rendered
+    assert "1. Map wetland baselines." in rendered
+    assert "2. Install runoff controls." in rendered
+    assert "- 1. Map" not in rendered
+    assert "- 2) Install" not in rendered
+    assert "1. 1. Map" not in rendered
+    assert "2. 2) Install" not in rendered
+
 def test_tracer_receives_exact_machine_records(tmp_path):
     source = artifact()
     payload = envelope([claim("Wetlands support birds.", "K1", source.original_text_chunk)])

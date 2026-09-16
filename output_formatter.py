@@ -18,7 +18,7 @@ class OutputQueryType(str, Enum):
 
 
 class OutputFormatter:
-    """Select presentation only; never add, remove, or rewrite a claim."""
+    """Select presentation without changing validated claim or provenance data."""
 
     _COMPARISON = re.compile(r"\b(?:compar\w*|differ\w*|contrast\w*|versus|vs\.?)\b", re.I)
     _TEMPORAL = re.compile(r"\b(?:current|latest|newest|most recent|as of|revised|updated|supersed\w*)\b", re.I)
@@ -38,9 +38,17 @@ class OutputFormatter:
         return (OutputQueryType.MULTI_DOCUMENT if len(document_ids) > 1
                 else OutputQueryType.SIMPLE_FACTUAL)
 
-    def _claim_line(self, claim: Claim, sources: Sequence[KnowledgeArtifact], prefix: str = "") -> str:
+    _LIST_MARKER = re.compile(r"^\s*(?:\d{1,3}[.)]|[-*+])\s+")
+
+    def _claim_line(self, claim: Claim, sources: Sequence[KnowledgeArtifact],
+                    prefix: str = "", *, strip_list_marker: bool = False) -> str:
         citations = " ".join(dict.fromkeys(self.citation(source) for source in sources))
-        return f"{prefix}{claim.text} {citations}".rstrip()
+        # The validated claim remains unchanged in memory and provenance logs.
+        # Remove only an LLM-supplied presentation marker when this formatter
+        # owns the surrounding Markdown list.
+        text = (self._LIST_MARKER.sub("", claim.text, count=1)
+                if strip_list_marker else claim.text)
+        return f"{prefix}{text} {citations}".rstrip()
 
     @staticmethod
     def _missing_block(response: SynthesisResponse) -> str:
@@ -85,10 +93,11 @@ class OutputFormatter:
         lines = ["**Recommendations by category**"]
         for category, items in grouped.items():
             lines.extend(["", f"*{category}*", *[
-                self._claim_line(claim, claim_sources, "- ")
+                self._claim_line(claim, claim_sources, "- ", strip_list_marker=True)
                 for claim, claim_sources in items]])
         lines.extend(["", "**Implementation sequence**", ""])
-        lines.extend(self._claim_line(claim, claim_sources, f"{index}. ")
+        lines.extend(self._claim_line(claim, claim_sources, f"{index}. ",
+                                      strip_list_marker=True)
                      for index, (claim, claim_sources) in enumerate(
                          zip(claims, sources, strict=True), 1))
         return "\n".join(lines)
