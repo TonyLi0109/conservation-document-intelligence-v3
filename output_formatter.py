@@ -10,6 +10,9 @@ from data_models import Claim, KnowledgeArtifact, SynthesisResponse, SynthesisSt
 
 VALIDATED_FINDINGS_HEADING = "**Validated Findings:**"
 EVIDENCE_GAPS_HEADING = "**Remaining evidence gaps / Unsupported facets:**"
+FAILED_VALIDATION_DIAGNOSTIC = (
+    "One or more generated claims failed provenance validation."
+)
 
 
 def format_evidence_gaps(facets: Sequence[str]) -> str:
@@ -39,6 +42,10 @@ def normalize_user_facing_answer(
     )
     lines = []
     for line in text.splitlines():
+        removed_diagnostic = FAILED_VALIDATION_DIAGNOSTIC in line
+        line = line.replace(FAILED_VALIDATION_DIAGNOSTIC, "")
+        if removed_diagnostic:
+            line = re.sub(r"[ \t]{2,}", " ", line).strip()
         if re.fullmatch(
             r"\s*(?:\*\*)?(?:Remaining evidence gaps / )?"
             r"Unsupported facets:?(?:\*\*)?\s*",

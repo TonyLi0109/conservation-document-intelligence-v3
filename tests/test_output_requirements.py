@@ -185,12 +185,15 @@ def test_machine_status_is_suppressed_and_empty_gap_block_is_omitted():
 def test_global_ui_boundary_normalizes_legacy_templates():
     rendered = normalize_user_facing_answer(
         "- Supported claim.\n\n**Unsupported facets**\n\n"
-        "*Status: INSUFFICIENT_EVIDENCE*\n\n- Cost data are unavailable.",
+        "*Status: INSUFFICIENT_EVIDENCE*\n\n"
+        "- One or more generated claims failed provenance validation.\n\n"
+        "- Cost data are unavailable.",
         has_validated_findings=True,
     )
 
     assert rendered.startswith("**Validated Findings:**")
     assert "Status: INSUFFICIENT_EVIDENCE" not in rendered
+    assert "One or more generated claims failed provenance validation." not in rendered
     assert "**Unsupported facets**" not in rendered
     assert "**Remaining evidence gaps / Unsupported facets:**" in rendered
 
@@ -200,6 +203,13 @@ def test_global_ui_boundary_normalizes_legacy_templates():
         has_validated_findings=True,
     )
     assert "Remaining evidence gaps" not in no_gaps
+
+    inline = normalize_user_facing_answer(
+        "- Supported claim.  One or more generated claims failed provenance validation.  [DOC001]",
+        has_validated_findings=True,
+    )
+    assert "failed provenance validation" not in inline
+    assert "- Supported claim. [DOC001]" in inline
 
 
 def test_tracer_receives_exact_machine_records(tmp_path):
