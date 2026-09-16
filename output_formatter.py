@@ -20,6 +20,13 @@ class OutputQueryType(str, Enum):
 class OutputFormatter:
     """Select presentation without changing validated claim or provenance data."""
 
+    # Explicit requests for observed evidence describe the desired answer form,
+    # even when their subject contains domain verbs such as "control efforts".
+    _FACTUAL_EVIDENCE = re.compile(
+        r"\b(?:what evidence|quantitative (?:results?|evidence|data)|"
+        r"how (?:much|many)|show(?:s|ed|ing)? that)\b",
+        re.I,
+    )
     _COMPARISON = re.compile(r"\b(?:compar\w*|differ\w*|contrast\w*|versus|vs\.?)\b", re.I)
     _TEMPORAL = re.compile(r"\b(?:current|latest|newest|most recent|as of|revised|updated|supersed\w*)\b", re.I)
     _MANAGEMENT = re.compile(r"\b(?:manage\w*|recommend\w*|action plan|implement\w*|mitigat\w*|control\w*|priorit\w*|next steps?)\b", re.I)
@@ -28,6 +35,8 @@ class OutputFormatter:
         self.citation = citation
 
     def classify(self, query: str, sources: Sequence[Sequence[KnowledgeArtifact]]) -> OutputQueryType:
+        if self._FACTUAL_EVIDENCE.search(query):
+            return OutputQueryType.SIMPLE_FACTUAL
         if self._COMPARISON.search(query):
             return OutputQueryType.COMPARISON
         if self._TEMPORAL.search(query):

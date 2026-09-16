@@ -81,6 +81,24 @@ def test_comparison_and_management_templates_keep_citations_adjacent():
     assert "2. Monitoring detects change. [DOC002" in managed
 
 
+def test_quantitative_evidence_preempts_management_template():
+    source = artifact(
+        title="Invasive Carp Results",
+        text="Commercial harvest removed 1.2 million pounds of invasive carp.",
+    )
+    fact = "Commercial harvest removed 1.2 million pounds of invasive carp."
+    payload = envelope([claim(fact, "K1", source.original_text_chunk)])
+    query = ("What evidence in the corpus shows that invasive carp control efforts "
+             "have been effective in Missouri? Give quantitative results where available.")
+
+    rendered, _ = validate_format_and_log(payload, {"K1": source}, query=query)
+
+    assert rendered.count(fact) == 1
+    assert rendered.startswith("- " + fact)
+    assert "[DOC001" in rendered
+    assert "**Recommendations by category**" not in rendered
+    assert "**Implementation sequence**" not in rendered
+
 def test_management_template_owns_list_numbering():
     first = artifact(text="1. Map wetland baselines.")
     second = artifact("DOC002", "Runoff Plan", "3", None,
