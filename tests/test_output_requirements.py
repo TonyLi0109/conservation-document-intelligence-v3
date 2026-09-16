@@ -40,8 +40,9 @@ def test_claim_statuses_and_required_jsonl_fields(tmp_path, monkeypatch):
     assert records[0]["printed_page"] == "7" and records[0]["pdf_page"] == "9"
     assert records[0]["supporting_evidence_span"] == source.original_text_chunk
     assert "eliminate all flooding" not in rendered
-    assert "**Unsupported facets**" in rendered
-    assert "INSUFFICIENT_EVIDENCE" in rendered
+    assert rendered.startswith("**Validated Findings**")
+    assert "**Remaining evidence gaps / Unsupported facets**" in rendered
+    assert "INSUFFICIENT_EVIDENCE" not in rendered
     assert sources == [source]
 
 
@@ -75,9 +76,11 @@ def test_comparison_and_management_templates_keep_citations_adjacent():
     assert "DOC001 ?" not in compared and "DOC002 ?" not in compared
     assert "Wetlands support birds. [DOC001" in compared
     managed, _ = validate_format_and_log(
-        payload, {"K1": first, "K2": second}, query="Recommend management next steps")
-    assert "**Recommendations by category**" in managed
-    assert "**Implementation sequence**" in managed
+        payload, {"K1": first, "K2": second},
+        query="Recommend wetland and monitoring solutions and provide next steps")
+    assert "### wetland" in managed
+    assert "### monitoring" in managed
+    assert "Control" not in managed and "Coordination" not in managed
     assert "2. Monitoring detects change. [DOC002" in managed
 
 
@@ -94,7 +97,8 @@ def test_quantitative_evidence_preempts_management_template():
     rendered, _ = validate_format_and_log(payload, {"K1": source}, query=query)
 
     assert rendered.count(fact) == 1
-    assert rendered.startswith("- " + fact)
+    assert rendered.startswith("**Validated Findings**")
+    assert "- " + fact in rendered
     assert "[DOC001" in rendered
     assert "**Recommendations by category**" not in rendered
     assert "**Implementation sequence**" not in rendered
@@ -113,14 +117,54 @@ def test_management_template_owns_list_numbering():
         query="What management actions should I implement? Provide next steps.",
     )
 
-    assert "- Map wetland baselines." in rendered
-    assert "- Install runoff controls." in rendered
+    assert rendered.count("Map wetland baselines.") == 1
+    assert rendered.count("Install runoff controls.") == 1
     assert "1. Map wetland baselines." in rendered
     assert "2. Install runoff controls." in rendered
     assert "- 1. Map" not in rendered
     assert "- 2) Install" not in rendered
     assert "1. 1. Map" not in rendered
     assert "2. 2) Install" not in rendered
+
+def test_requested_management_categories_are_used_verbatim_and_empty_ones_are_omitted():
+    technical = artifact(text="Install engineered biofilters and treatment ponds.")
+    regulatory = artifact("DOC002", "Runoff Plan", "3", None,
+                          "Coordinate Section 401 and Section 404 permits.")
+    payload = envelope([
+        claim(technical.original_text_chunk, "K1", technical.original_text_chunk),
+        claim(regulatory.original_text_chunk, "K2", regulatory.original_text_chunk),
+    ])
+    query = ("What technological, regulatory, and market-based solutions should I "
+             "implement to combat agricultural runoff?")
+
+    rendered, _ = validate_format_and_log(
+        payload, {"K1": technical, "K2": regulatory}, query=query)
+
+    assert "### technological" in rendered
+    assert "### regulatory" in rendered
+    assert "### market-based" not in rendered
+    assert all(label not in rendered for label in ("### Control", "### Coordination", "### Prevention"))
+
+
+def test_internal_metadata_facets_are_hidden_unless_query_requests_an_audit():
+    source = artifact()
+    payload = envelope(
+        [claim("Wetlands support birds.", "K1", source.original_text_chunk)],
+        ["Conflicting publication date: 1986 versus 2024",
+         "Several document families are relevant.",
+         "Implementation costs are unavailable."],
+    )
+
+    rendered, _ = validate_format_and_log(
+        payload, {"K1": source}, query="Which guidance is most current?")
+    assert "Conflicting publication date" not in rendered
+    assert "Several document families" not in rendered
+    assert "Implementation costs are unavailable." in rendered
+
+    audited, _ = validate_format_and_log(
+        payload, {"K1": source}, query="Audit the date metadata and explain conflicts.")
+    assert "Conflicting publication date" in audited
+    assert "Several document families" in audited
 
 def test_tracer_receives_exact_machine_records(tmp_path):
     source = artifact()

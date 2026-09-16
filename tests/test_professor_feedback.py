@@ -264,7 +264,8 @@ def test_native_question_reaches_grounded_negative_synthesis(tmp_path, monkeypat
         "Are invasive carp native to Missouri?", ReloadedStoreProxy()
     )
 
-    assert answer.startswith("- No.")
+    assert answer.startswith("**Validated Findings**")
+    assert "- No." in answer
     assert preamble == ""
     assert [source.document_id for source in sources] == ["DOC036"]
     store.close()

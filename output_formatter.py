@@ -59,65 +59,106 @@ class OutputFormatter:
                 if strip_list_marker else claim.text)
         return f"{prefix}{text} {citations}".rstrip()
 
-    @staticmethod
-    def _missing_block(response: SynthesisResponse) -> str:
-        if not response.unsupported_facets:
+    _CATEGORY_REQUEST = re.compile(
+        r"(?P<items>[A-Za-z][A-Za-z-]*(?:\s*,\s*[A-Za-z][A-Za-z-]*)*"
+        r"\s*,?\s+(?:and|or)\s+[A-Za-z][A-Za-z-]*)\s+"
+        r"(?:solutions?|approaches?|strategies|recommendations?|actions?|options?|measures?)\b",
+        re.I,
+    )
+    _METADATA_AUDIT = re.compile(
+        r"\b(?:metadata|date|lifecycle|version)\s+audit\b|"
+        r"\baudit\s+(?:the\s+)?(?:metadata|dates?|lifecycle|version)\b|"
+        r"\b(?:explain|identify|show|list)\s+(?:any\s+)?"
+        r"(?:metadata|date|version)\s+(?:conflicts?|discrepancies)\b",
+        re.I,
+    )
+    _METADATA_BOILERPLATE = re.compile(
+        r"^(?:conflicting (?:publication|revision|effective) date|several document families|"
+        r"the document's revision/version year differs|.*catalog metadata)",
+        re.I,
+    )
+    _CATEGORY_SIGNALS = (
+        (r"technolog|technical|engineer", r"technolog|engineer|treatment|biofilter|detention|"
+         r"impoundment|infrastructure|monitor|mapping|baseline|interception|practice|restore"),
+        (r"regulat|legal|policy|compliance", r"regulat|permit|section\s+40[14]|compliance|"
+         r"enforc|requirement|avoidance|minimization|mitigation|review|swampbuster"),
+        (r"market|financ|economic|funding", r"market|financ|fund|grant|incentive|easement|"
+         r"payment|credit|cost.?share|assistance|NRCS|MRBI|NWQI|section\s+319"),
+    )
+
+    @classmethod
+    def _requested_categories(cls, query: str) -> tuple[str, ...]:
+        match = cls._CATEGORY_REQUEST.search(query)
+        if not match:
+            return ()
+        items = re.sub(r",?\s+(?:and|or)\s+", ",", match.group("items"), flags=re.I)
+        return tuple(dict.fromkeys(item.strip() for item in items.split(",") if item.strip()))
+
+    @classmethod
+    def _category_for_claim(cls, text: str, categories: Sequence[str]) -> str | None:
+        normalized = text.casefold()
+        scored = []
+        for position, category in enumerate(categories):
+            terms = [term.casefold() for term in re.findall(r"[A-Za-z][A-Za-z-]*", category)
+                     if term.casefold() not in {"based", "related"}]
+            score = sum(bool(re.search(r"\b" + re.escape(term) + r"\w*\b", normalized))
+                        for term in terms)
+            for category_pattern, evidence_pattern in cls._CATEGORY_SIGNALS:
+                if re.search(category_pattern, category, re.I):
+                    score += len(re.findall(evidence_pattern, text, re.I))
+            scored.append((score, -position, category))
+        best = max(scored, default=(0, 0, None))
+        return best[2] if best[0] else None
+
+    @classmethod
+    def _missing_block(cls, response: SynthesisResponse, query: str | None) -> str:
+        facets = list(response.unsupported_facets)
+        if not query or not cls._METADATA_AUDIT.search(query):
+            facets = [facet for facet in facets if not cls._METADATA_BOILERPLATE.search(facet)]
+        if not facets:
             return ""
-        return "**Unsupported facets**\n\n*Status: INSUFFICIENT_EVIDENCE*\n\n" + "\n".join(
-            f"- {facet}" for facet in response.unsupported_facets)
+        return "**Remaining evidence gaps / Unsupported facets**\n\n" + "\n".join(
+            f"- {facet}" for facet in facets)
 
     def _comparison(self, claims, sources) -> str:
         groups = defaultdict(list)
         titles = {}
         for claim, claim_sources in zip(claims, sources, strict=True):
             ids = tuple(dict.fromkeys(source.document_id for source in claim_sources))
-            key = ids[0] if len(ids) == 1 else "Cross-document findings"
-            groups[key].append((claim, claim_sources))
-            if len(ids) == 1:
-                titles[key] = claim_sources[0].title
+            groups[ids].append((claim, claim_sources))
+            for source in claim_sources:
+                titles[source.document_id] = source.title
         sections = []
-        for key, items in groups.items():
-            heading = key if key == "Cross-document findings" else f"{key}: {titles[key]}"
+        for ids, items in groups.items():
+            heading = " + ".join(f"{doc_id}: {titles[doc_id]}" for doc_id in ids)
             sections.append(f"### {heading}\n\n" + "\n".join(
                 self._claim_line(claim, claim_sources, "- ")
                 for claim, claim_sources in items))
         return "\n\n".join(sections)
 
-    @staticmethod
-    def _action_category(text: str) -> str:
-        categories = (
-            ("Prevention", r"prevent|avoid|biosecurity|education"),
-            ("Monitoring", r"monitor|survey|detect|assess|track"),
-            ("Control", r"control|remove|harvest|treat|eradicate"),
-            ("Restoration", r"restore|rehabilitat|revegetat|habitat"),
-            ("Coordination", r"coordinat|partner|agency|stakeholder|communicat"),
-        )
-        return next((label for label, pattern in categories
-                     if re.search(pattern, text, re.I)), "General actions")
-
-    def _management(self, claims, sources) -> str:
-        grouped = defaultdict(list)
-        for claim, claim_sources in zip(claims, sources, strict=True):
-            grouped[self._action_category(claim.text)].append((claim, claim_sources))
-        lines = ["**Recommendations by category**"]
-        for category, items in grouped.items():
-            lines.extend(["", f"*{category}*", *[
-                self._claim_line(claim, claim_sources, "- ", strip_list_marker=True)
-                for claim, claim_sources in items]])
-        lines.extend(["", "**Implementation sequence**", ""])
-        lines.extend(self._claim_line(claim, claim_sources, f"{index}. ",
-                                      strip_list_marker=True)
-                     for index, (claim, claim_sources) in enumerate(
-                         zip(claims, sources, strict=True), 1))
+    def _management(self, query, claims, sources) -> str:
+        categories = self._requested_categories(query)
+        lines = []
+        previous_category = object()
+        for index, (claim, claim_sources) in enumerate(
+                zip(claims, sources, strict=True), 1):
+            category = self._category_for_claim(claim.text, categories)
+            if category is not None and category != previous_category:
+                if lines:
+                    lines.append("")
+                lines.extend([f"### {category}", ""])
+            lines.append(self._claim_line(
+                claim, claim_sources, f"{index}. ", strip_list_marker=True
+            ))
+            previous_category = category
         return "\n".join(lines)
-
     def format(self, query: str | None, response: SynthesisResponse,
                sources: Sequence[Sequence[KnowledgeArtifact]]) -> str:
         if response.status is SynthesisStatus.VALIDATION_FAILED:
             return "The generated answer could not be verified against the retrieved source text."
         if response.status is SynthesisStatus.SYSTEM_FALLBACK and not response.claims:
             return "The synthesis service is unavailable. Please try again or review the retrieved sources."
-        missing = self._missing_block(response)
+        missing = self._missing_block(response, query)
         if not response.claims:
             lead = "The corpus does not provide enough evidence to answer that question reliably."
             return f"{lead}\n\n{missing}" if missing else lead
@@ -129,7 +170,7 @@ class OutputFormatter:
             if kind is OutputQueryType.COMPARISON:
                 body = self._comparison(response.claims, sources)
             elif kind is OutputQueryType.MANAGEMENT:
-                body = self._management(response.claims, sources)
+                body = self._management(query, response.claims, sources)
             elif kind is OutputQueryType.TEMPORAL:
                 body = self._claim_line(response.claims[0], sources[0])
                 remainder = "\n".join(self._claim_line(claim, group, "- ")
@@ -142,4 +183,5 @@ class OutputFormatter:
             else:
                 body = "\n\n".join(self._claim_line(claim, group, "- ")
                                    for claim, group in zip(response.claims, sources, strict=True))
-        return f"{body}\n\n{missing}" if missing else body
+        supported = f"**Validated Findings**\n\n{body}"
+        return f"{supported}\n\n{missing}" if missing else supported
