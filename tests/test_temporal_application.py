@@ -38,7 +38,8 @@ def test_temporal_chat_and_search_do_not_call_providers(store, monkeypatch, ques
     diagnostics = {}
     answer, preamble, sources = main.ask_chatbot_with_context(question, store, top_k=1, diagnostics=diagnostics)
     assert diagnostics["temporal_selected_document_ids"][0] == expected
-    assert answer.startswith("**Conclusion:**")
+    assert answer.startswith("**Validated Findings:**")
+    assert "**Conclusion:**" in answer
     assert "**Publication and planning evidence**" in answer
     assert "Source excerpt:" not in answer
     assert "Version/date evidence:" not in answer

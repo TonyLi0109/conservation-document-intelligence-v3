@@ -256,8 +256,8 @@ def _obvious_threat_method_mismatch(question: str, recent: list[dict[str, object
                and not item.get("resolved_context", {}).get("needs_clarification")]
     if not replies:
         return False
-    body = re.split(r"\*\*(?:Remaining evidence gaps / )?Unsupported facets\*\*", str(replies[-1]["content"]), maxsplit=1, flags=re.I)[0]
-    body = re.sub(r"^\s*\*\*(?:Validated Findings|Answer:\s*Supported)\*\*\s*", "", body, flags=re.I)
+    body = re.split(r"\*\*(?:Remaining evidence gaps / )?Unsupported facets:?\*\*", str(replies[-1]["content"]), maxsplit=1, flags=re.I)[0]
+    body = re.sub(r"^\s*\*\*(?:Validated Findings:?|Answer:\s*Supported:?)\*\*\s*", "", body, flags=re.I)
     body = re.sub(r"\[DOC\d+[^\]]*\]", "", body).strip().rstrip(".").strip()
     match = re.fullmatch(r"[-*]?\s*(?:the\s+)?(?:main\s+)?conservation threats\s+(?:include|are)\s+(?:direct drivers such as\s+)?(.+)", body, re.I)
     if not match:

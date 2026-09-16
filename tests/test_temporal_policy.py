@@ -271,6 +271,7 @@ def test_temporal_renderer_limits_date_evidence_to_two_documents():
     expected = [artifact.document_id for artifact in selected["artifacts"][:2]]
     assert displayed == expected
     assert selected["artifacts"][2].document_id not in displayed
-    assert answer.startswith("**Conclusion:**")
+    assert answer.startswith("**Validated Findings:**")
+    assert "**Conclusion:**" in answer
     assert "Source excerpt:" not in answer
     assert "Version/date evidence:" not in answer

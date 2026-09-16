@@ -3,6 +3,7 @@ import json
 
 from data_models import KnowledgeArtifact
 from pipeline_tracer import PipelineTracer
+from output_formatter import normalize_user_facing_answer
 from validation_presentation import validate_format_and_log
 
 
@@ -40,8 +41,8 @@ def test_claim_statuses_and_required_jsonl_fields(tmp_path, monkeypatch):
     assert records[0]["printed_page"] == "7" and records[0]["pdf_page"] == "9"
     assert records[0]["supporting_evidence_span"] == source.original_text_chunk
     assert "eliminate all flooding" not in rendered
-    assert rendered.startswith("**Validated Findings**")
-    assert "**Remaining evidence gaps / Unsupported facets**" in rendered
+    assert rendered.startswith("**Validated Findings:**")
+    assert "**Remaining evidence gaps / Unsupported facets:**" in rendered
     assert "INSUFFICIENT_EVIDENCE" not in rendered
     assert sources == [source]
 
@@ -97,7 +98,7 @@ def test_quantitative_evidence_preempts_management_template():
     rendered, _ = validate_format_and_log(payload, {"K1": source}, query=query)
 
     assert rendered.count(fact) == 1
-    assert rendered.startswith("**Validated Findings**")
+    assert rendered.startswith("**Validated Findings:**")
     assert "- " + fact in rendered
     assert "[DOC001" in rendered
     assert "**Recommendations by category**" not in rendered
@@ -165,6 +166,41 @@ def test_internal_metadata_facets_are_hidden_unless_query_requests_an_audit():
         payload, {"K1": source}, query="Audit the date metadata and explain conflicts.")
     assert "Conflicting publication date" in audited
     assert "Several document families" in audited
+
+def test_machine_status_is_suppressed_and_empty_gap_block_is_omitted():
+    source = artifact()
+    payload = envelope(
+        [claim("Wetlands support birds.", "K1", source.original_text_chunk)],
+        ["Status: INSUFFICIENT_EVIDENCE"],
+    )
+
+    rendered, _ = validate_format_and_log(
+        payload, {"K1": source}, query="Summarize wetland findings")
+
+    assert rendered.startswith("**Validated Findings:**")
+    assert "INSUFFICIENT_EVIDENCE" not in rendered
+    assert "Remaining evidence gaps" not in rendered
+
+
+def test_global_ui_boundary_normalizes_legacy_templates():
+    rendered = normalize_user_facing_answer(
+        "- Supported claim.\n\n**Unsupported facets**\n\n"
+        "*Status: INSUFFICIENT_EVIDENCE*\n\n- Cost data are unavailable.",
+        has_validated_findings=True,
+    )
+
+    assert rendered.startswith("**Validated Findings:**")
+    assert "Status: INSUFFICIENT_EVIDENCE" not in rendered
+    assert "**Unsupported facets**" not in rendered
+    assert "**Remaining evidence gaps / Unsupported facets:**" in rendered
+
+    no_gaps = normalize_user_facing_answer(
+        "- Supported claim.\n\n**Unsupported facets**\n\n"
+        "*Status: INSUFFICIENT_EVIDENCE*",
+        has_validated_findings=True,
+    )
+    assert "Remaining evidence gaps" not in no_gaps
+
 
 def test_tracer_receives_exact_machine_records(tmp_path):
     source = artifact()

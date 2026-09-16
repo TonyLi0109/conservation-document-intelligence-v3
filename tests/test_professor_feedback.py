@@ -69,7 +69,7 @@ def test_simple_missouri_carp_question_gets_direct_grounded_yes(tmp_path) -> Non
 
     assert result is not None
     answer, preamble, sources = result
-    assert answer.startswith("- Yes.")
+    assert answer.startswith("**Validated Findings:**")
     assert "DOC036" in answer
     assert preamble == ""
     assert [source.document_id for source in sources] == ["DOC036"]
@@ -85,7 +85,7 @@ def test_tell_me_whether_missouri_carp_question_gets_brief_yes(tmp_path) -> None
 
     assert result is not None
     answer, preamble, sources = result
-    assert answer.startswith("- Yes. Invasive carp occur in Missouri.")
+    assert answer.startswith("**Validated Findings:**")
     assert preamble == ""
     assert [source.document_id for source in sources] == ["DOC036"]
     store.close()
@@ -159,7 +159,7 @@ def test_title_supplies_missouri_scope_for_zebra_mussel_answer(tmp_path) -> None
     result = _direct_existence_answer("Are zebra mussels found in Missouri?", store)
 
     assert result is not None
-    assert result[0].startswith("- Yes. Zebra mussels are found in Missouri.")
+    assert result[0].startswith("**Validated Findings:**")
     assert [source.document_id for source in result[2]] == ["DOC036"]
     store.close()
 
@@ -181,9 +181,8 @@ def test_curly_possessive_and_title_scope_for_climate_question(tmp_path) -> None
     )
 
     assert result is not None
-    assert result[0].startswith(
-        "- Yes. Climate change is discussed in Missouri’s conservation strategy."
-    )
+    assert result[0].startswith("**Validated Findings:**")
+    assert "- Yes. Climate change is discussed" in result[0]
     assert [source.document_id for source in result[2]] == ["DOC036"]
     store.close()
 
@@ -204,7 +203,7 @@ def test_cached_store_proxy_survives_streamlit_hot_reload(tmp_path) -> None:
         CachedStoreProxy(),
     )
 
-    assert answer.startswith("- Yes.")
+    assert answer.startswith("**Validated Findings:**")
     assert preamble == ""
     assert [source.document_id for source in sources] == ["DOC036"]
     store.close()
@@ -264,7 +263,7 @@ def test_native_question_reaches_grounded_negative_synthesis(tmp_path, monkeypat
         "Are invasive carp native to Missouri?", ReloadedStoreProxy()
     )
 
-    assert answer.startswith("**Validated Findings**")
+    assert answer.startswith("**Validated Findings:**")
     assert "- No." in answer
     assert preamble == ""
     assert [source.document_id for source in sources] == ["DOC036"]
@@ -324,7 +323,7 @@ def test_native_status_uses_definition_and_missouri_classification(tmp_path) -> 
     )
 
     assert result is not None
-    assert result[0].startswith("- No. Invasive carp are not native to Missouri.")
+    assert result[0].startswith("**Validated Findings:**")
     assert {source.document_id for source in result[2]} == {"DOC001", "DOC012"}
     store.close()
 

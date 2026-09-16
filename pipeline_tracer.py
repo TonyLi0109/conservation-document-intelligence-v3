@@ -104,6 +104,11 @@ def trace_pipeline(function):
         def run():
             capture("original_query", question)
             result = function(question, *args, **kwargs)
+            from output_formatter import normalize_user_facing_answer
+            answer = normalize_user_facing_answer(
+                result[0], has_validated_findings=bool(result[2])
+            )
+            result = (answer, result[1], result[2])
             capture("final_output", {"answer": result[0], "preamble": result[1], "sources": result[2]})
             return result
         if active():
@@ -112,5 +117,5 @@ def trace_pipeline(function):
         if directory:
             with PipelineTracer(directory):
                 return run()
-        return function(question, *args, **kwargs)
+        return run()
     return wrapped

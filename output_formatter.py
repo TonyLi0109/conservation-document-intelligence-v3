@@ -8,6 +8,66 @@ from typing import Callable, Sequence
 
 from data_models import Claim, KnowledgeArtifact, SynthesisResponse, SynthesisStatus
 
+VALIDATED_FINDINGS_HEADING = "**Validated Findings:**"
+EVIDENCE_GAPS_HEADING = "**Remaining evidence gaps / Unsupported facets:**"
+
+
+def format_evidence_gaps(facets: Sequence[str]) -> str:
+    """Render UI gaps while keeping the machine-only global status out of prose."""
+    visible = []
+    for facet in facets:
+        plain = re.sub(r"[*`]", "", str(facet)).strip().strip("_")
+        if re.fullmatch(r"(?:Status\s*:\s*)?INSUFFICIENT[_ ]EVIDENCE", plain, re.I):
+            continue
+        visible.append(str(facet))
+    if not visible:
+        return ""
+    return EVIDENCE_GAPS_HEADING + "\n\n" + "\n".join(f"- {item}" for item in visible)
+
+
+def normalize_user_facing_answer(
+    markdown: str,
+    *,
+    has_validated_findings: bool = False,
+) -> str:
+    """Enforce the presentation contract at the final UI boundary."""
+    text = str(markdown or "")
+    text = re.sub(
+        r"(?i)[*_`]*Status\s*:\s*INSUFFICIENT[_ ]EVIDENCE[*_`]*",
+        "",
+        text,
+    )
+    lines = []
+    for line in text.splitlines():
+        if re.fullmatch(
+            r"\s*(?:\*\*)?(?:Remaining evidence gaps / )?"
+            r"Unsupported facets:?(?:\*\*)?\s*",
+            line,
+            re.I,
+        ):
+            line = EVIDENCE_GAPS_HEADING
+        if re.fullmatch(r"\s*(?:[-+*]\s*)?", line):
+            line = ""
+        if line or not lines or lines[-1]:
+            lines.append(line.rstrip())
+
+    while lines and not lines[-1]:
+        lines.pop()
+    if lines and lines[-1] == EVIDENCE_GAPS_HEADING:
+        lines.pop()
+        while lines and not lines[-1]:
+            lines.pop()
+
+    rendered = "\n".join(lines).strip()
+    already_prefixed = bool(re.match(
+        r"^\s*\*\*(?:Validated Findings:?|Answer:\s*Supported:?)\*\*",
+        rendered,
+        re.I,
+    ))
+    if has_validated_findings and rendered and not already_prefixed:
+        rendered = f"{VALIDATED_FINDINGS_HEADING}\n\n{rendered}"
+    return rendered
+
 
 class OutputQueryType(str, Enum):
     SIMPLE_FACTUAL = "simple_factual"
@@ -115,10 +175,7 @@ class OutputFormatter:
         facets = list(response.unsupported_facets)
         if not query or not cls._METADATA_AUDIT.search(query):
             facets = [facet for facet in facets if not cls._METADATA_BOILERPLATE.search(facet)]
-        if not facets:
-            return ""
-        return "**Remaining evidence gaps / Unsupported facets**\n\n" + "\n".join(
-            f"- {facet}" for facet in facets)
+        return format_evidence_gaps(facets)
 
     def _comparison(self, claims, sources) -> str:
         groups = defaultdict(list)
@@ -183,5 +240,8 @@ class OutputFormatter:
             else:
                 body = "\n\n".join(self._claim_line(claim, group, "- ")
                                    for claim, group in zip(response.claims, sources, strict=True))
-        supported = f"**Validated Findings**\n\n{body}"
-        return f"{supported}\n\n{missing}" if missing else supported
+        supported = f"{VALIDATED_FINDINGS_HEADING}\n\n{body}"
+        rendered = f"{supported}\n\n{missing}" if missing else supported
+        return normalize_user_facing_answer(
+            rendered, has_validated_findings=True
+        )

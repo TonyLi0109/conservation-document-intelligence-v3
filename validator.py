@@ -16,6 +16,7 @@ from data_models import (
     SynthesisStatus,
     is_knowledge_artifact,
 )
+from output_formatter import VALIDATED_FINDINGS_HEADING, format_evidence_gaps
 
 
 LOGGER = logging.getLogger(__name__)
@@ -174,22 +175,20 @@ def _render(response: SynthesisResponse, sources: list[list[KnowledgeArtifact]])
     """Render a validated response without exposing opaque evidence handles."""
 
     if response.status is SynthesisStatus.INSUFFICIENT_EVIDENCE:
-        facets = "\n".join(f"- {facet}" for facet in response.unsupported_facets)
-        return f"{INSUFFICIENT_MESSAGE}\n\n**Unsupported facets**\n\n{facets}"
+        gaps = format_evidence_gaps(response.unsupported_facets)
+        return f"{INSUFFICIENT_MESSAGE}\n\n{gaps}" if gaps else INSUFFICIENT_MESSAGE
     if response.status is SynthesisStatus.VALIDATION_FAILED:
         return VALIDATION_FAILED_MESSAGE
     if response.status is SynthesisStatus.SYSTEM_FALLBACK and not response.claims:
         return SYSTEM_FALLBACK_MESSAGE
 
-    lines: list[str] = []
+    lines: list[str] = [VALIDATED_FINDINGS_HEADING, ""]
     for claim, claim_sources in zip(response.claims, sources, strict=True):
         citations = " ".join(dict.fromkeys(_citation(item) for item in claim_sources))
         lines.append(f"- {claim.text} {citations}")
-    if response.unsupported_facets:
-        lines.extend(
-            ["", "**Unsupported facets**", ""]
-            + [f"- {facet}" for facet in response.unsupported_facets]
-        )
+    gaps = format_evidence_gaps(response.unsupported_facets)
+    if gaps:
+        lines.extend(["", gaps])
     return "\n".join(lines)
 
 

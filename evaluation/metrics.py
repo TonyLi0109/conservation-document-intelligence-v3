@@ -284,7 +284,7 @@ def evaluate_answer(
         text = line.strip()
         if not text:
             continue
-        if re.fullmatch(r"(?:\*\*)?(?:Remaining evidence gaps / )?Unsupported facets(?:\*\*)?", text, re.IGNORECASE):
+        if re.fullmatch(r"(?:\*\*)?(?:Remaining evidence gaps / )?Unsupported facets:?(?:\*\*)?", text, re.IGNORECASE):
             in_unsupported = True
             continue
         if text.startswith("#") or (text.startswith("**") and text.endswith("**")):

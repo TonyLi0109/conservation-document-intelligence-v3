@@ -86,7 +86,10 @@ def test_current_plan_beats_historical_publication(tmp_path, monkeypatch):
         monkeypatch.setenv('V3_PROVENANCE_LOG', str(log))
         answer, _, sources = render_temporal_answer(result, store)
 
-    assert answer.startswith('**Conclusion:**')
+    assert answer.startswith('**Validated Findings:**')
+    assert '**Conclusion:**' in answer
+    assert '**Remaining evidence gaps / Unsupported facets:**' in answer
+    assert 'Status: INSUFFICIENT_EVIDENCE' not in answer
     assert '- **DOC002:** Active planning period: 2023-2028' in answer
     assert 'Source excerpt:' not in answer
     assert 'Version/date evidence:' not in answer

@@ -15,6 +15,10 @@ import re
 from uuid import uuid4
 
 from data_models import ClaimValidation, ClaimValidationStatus, KnowledgeArtifact
+from output_formatter import (
+    VALIDATED_FINDINGS_HEADING,
+    format_evidence_gaps,
+)
 from provenance_log import ProvenanceLogger
 from validator import _citation
 
@@ -496,7 +500,7 @@ def render_temporal_answer(selection, store):
     if not selection["artifacts"]:
         return ("No matching dated/versioned source was found for this temporal request in the indexed corpus.", "", [])
 
-    lines, sources = [], []
+    lines, sources = [VALIDATED_FINDINGS_HEADING, ""], []
     all_evidence = selection["evidence"]
 
     def cite(artifact):
@@ -550,10 +554,9 @@ def render_temporal_answer(selection, store):
         lines.extend(["", "**Publication and planning evidence**", "", *evidence_lines])
 
     visible_uncertainties = _presentation_uncertainties(selection, displayed_artifacts)
-    if visible_uncertainties:
-        lines += ["", "**Unsupported facets**", "",
-                  "*Status: INSUFFICIENT_EVIDENCE*", "",
-                  *[f"- {message}" for message in visible_uncertainties]]
+    gaps = format_evidence_gaps(visible_uncertainties)
+    if gaps:
+        lines.extend(["", gaps])
 
     _log_temporal_provenance(
         selection, conclusion, first_source, conclusion_evidence, summaries,
