@@ -179,7 +179,7 @@ def select_diverse_evidence(ranked_ids, artifacts, top_k, target_ids, *, duplica
         'capacity_limited': top_k < len(set(target_ids)), 'decay': decay}
 
 
-def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
+def retrieve_evidence(store, query, *, query_embedding=None, top_k=6,
                       mode="hybrid_rerank", diagnostics=None, entity=None,
                       document_ids=None):
     """Return final K canonical chunks; providers are called only by the caller.

@@ -38,7 +38,7 @@ def row(case, category, mode, metrics, failures, details=None, warnings=None):
             "details": details or {}, "warnings": warnings or []}
 
 
-def run_retrieval_cases(store, dataset, *, top_k=5, live=False):
+def run_retrieval_cases(store, dataset, *, top_k=SETTINGS.retrieval.top_k, live=False):
     import main
     rows = []
     for case in dataset["cases"]:
@@ -154,7 +154,7 @@ def run_live_answers(store, cases, model, top_k):
 
 
 def run_suite(*, corpus=SETTINGS.storage.database_path, retrieval_cases=DATASET_DIR / "retrieval.json",
-              top_k=5, live=False, model=None, case_ids=None):
+              top_k=SETTINGS.retrieval.top_k, live=False, model=None, case_ids=None):
     from evaluation.scenarios import run_conversation_cases, run_wiki_cases
     from evaluation.temporal_cases import run_temporal_cases
     from evaluation.retrieval_quality import run_retrieval_quality_cases
@@ -208,7 +208,7 @@ def main():
     parser.add_argument("--corpus", type=Path, default=SETTINGS.storage.database_path)
     parser.add_argument("--retrieval-cases", type=Path, default=DATASET_DIR / "retrieval.json")
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).parent / "reports")
-    parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--top-k", type=int, default=SETTINGS.retrieval.top_k)
     parser.add_argument("--case", action="append", dest="case_ids")
     parser.add_argument("--live", action="store_true", help="Opt in to paid embedding/answer calls for selected corpus cases")
     parser.add_argument("--model", default=SETTINGS.models.llm_model)

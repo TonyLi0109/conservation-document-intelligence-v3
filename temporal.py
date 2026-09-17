@@ -135,7 +135,7 @@ def _doc_artifacts(store, document_ids):
     return store._artifacts_by_ranked_ids([row[0] for row in rows])
 
 
-def select_temporal_evidence(question, store, *, top_k=5, intent=None,
+def select_temporal_evidence(question, store, *, top_k=6, intent=None,
                              anchor_document_ids=(), as_of=None):
     from document_lifecycle import get_lifecycles
     intent = intent or detect_temporal_intent(question, documents=[dict(r) for r in

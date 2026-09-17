@@ -1,5 +1,5 @@
 """The deployed model selector stays intentionally narrow and deterministic."""
-from config import CHAT_MODEL_OPTIONS, ModelSettings
+from config import CHAT_MODEL_OPTIONS, ModelSettings, RetrievalSettings
 
 
 def test_only_approved_generation_models_are_exposed():
@@ -15,3 +15,9 @@ def test_sol_is_the_default_generation_model(monkeypatch):
 def test_environment_can_select_the_only_alternative(monkeypatch):
     monkeypatch.setenv("V3_LLM_MODEL", "gpt-4.1-mini")
     assert ModelSettings().llm_model == "gpt-4.1-mini"
+
+
+
+def test_experimental_baseline_retrieval_depth_is_six(monkeypatch):
+    monkeypatch.delenv("V3_TOP_K", raising=False)
+    assert RetrievalSettings().top_k == 6

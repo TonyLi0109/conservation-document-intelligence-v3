@@ -92,7 +92,7 @@ class ChunkingSettings:
 
 @dataclass(frozen=True, slots=True)
 class RetrievalSettings:
-    top_k: int = field(default_factory=lambda: _positive_int("V3_TOP_K", 5))
+    top_k: int = field(default_factory=lambda: _positive_int("V3_TOP_K", 6))
     dense_top_k: int = field(default_factory=lambda: _positive_int("V3_DENSE_TOP_K", 48))
     lexical_top_k: int = field(default_factory=lambda: _positive_int("V3_LEXICAL_TOP_K", 48))
     fusion_top_k: int = field(default_factory=lambda: _positive_int("V3_FUSION_TOP_K", 96))

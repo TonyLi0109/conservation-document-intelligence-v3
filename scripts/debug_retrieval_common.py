@@ -17,7 +17,7 @@ def arguments(query):
     parser.add_argument('--database', type=Path, default=ROOT / 'data/corpus.db')
     parser.add_argument('--output', type=Path, default=ROOT / 'traces')
     parser.add_argument('--query', default=query)
-    parser.add_argument('--top-k', type=int, default=5)
+    parser.add_argument('--top-k', type=int, default=6)
     parser.add_argument('--embedding-json', type=Path, help='Cached embedding for this exact query and index model; no API calls')
     return parser.parse_args()
 

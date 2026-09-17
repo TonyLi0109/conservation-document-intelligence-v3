@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "baseline_id": "CDIRP-V3-EXPERIMENTAL-BASELINE",
+  "system_name": "CDIRP V3",
+  "release_label": "V3 Experimental Baseline",
+  "freeze_date": "2026-09-17",
+  "release_month": "September 2026",
+  "git": {
+    "tag": "v3.0-experimental-baseline",
+    "implementation_parent_commit": "483b7c3f9924ee260d1293675cfc0cab6ce3e7ee",
+    "tag_target": "the commit containing this manifest",
+    "branch": "main"
+  },
+  "deployment": {
+    "platform": "Streamlit Community Cloud",
+    "url": "https://conservation-document-intelligence-v3.streamlit.app/",
+    "tracked_branch": "main"
+  },
+  "models": {
+    "reasoning_engine_display_name": "GPT-5.6sol",
+    "llm_model_id": "gpt-5.6-sol",
+    "baseline_llm_model_id": "gpt-5.6-sol",
+    "allowed_generation_models": [
+      "gpt-5.6-sol",
+      "gpt-4.1-mini"
+    ],
+    "embedding_model_id": "text-embedding-3-small",
+    "embedding_dimension": 1536,
+    "chatbot_output_tokens": 2500,
+    "request_timeout_seconds": 30.0,
+    "embedding_batch_size": 100
+  },
+  "corpus": {
+    "description": "Curated 36-source Missouri conservation corpus",
+    "document_count": 36,
+    "canonical_artifact_count": 964,
+    "database_path": "data/corpus.db",
+    "source_catalog_path": "data/source_catalog.csv",
+    "database_sha256_git_blob": "4d5bb333c07db69302fc8bc1617b4ab0de490b89aac62a3ea1016e9334ea6b70",
+    "source_catalog_sha256_git_blob": "71d95c4815d97ed458072a8318d33591dadfef91cbc40a154ae96bef34e916b7",
+    "logical_fingerprint": "sqlite-logical-v1:0d7529068b35d58933d315cf45a41c2d2d77e59df3c9821129288149ccea6b3e"
+  },
+  "chunking": {
+    "target_words": 750,
+    "overlap_words": 100,
+    "page_timeout_seconds": 60
+  },
+  "retrieval": {
+    "production_mode": "hybrid_rerank",
+    "hybrid_search_enabled": true,
+    "top_k": 6,
+    "dense_top_k": 48,
+    "lexical_top_k": 48,
+    "fusion_top_k": 96,
+    "rerank_top_k": 64,
+    "document_top_k": 8,
+    "document_chunk_k": 6,
+    "rrf_k": 60,
+    "duplicate_threshold": 0.85,
+    "document_diversity": {
+      "algorithm": "simplified document-level MMR",
+      "activation_scope": "queries with multiple explicitly resolved comparison targets",
+      "decay": 1.0,
+      "utility": "1 / (60 + fused_rank) / (1 + decay * previously_selected_from_document)",
+      "target_coverage_reservation": true
+    },
+    "title_aware_routing": {
+      "enabled": true,
+      "exact_titles_resolve_to_hard_document_scope": true,
+      "title_years_do_not_force_temporal_comparison": true
+    }
+  },
+  "lifecycle": {
+    "planning_period_enabled": true,
+    "planning_period_pattern": "\\b(?P<start>20\\d{2})\\s*(?:[-\\u2013\\u2014]|to|through)\\s*(?P<end>20\\d{2})\\b",
+    "operational_horizon": "planning_period.end_year",
+    "policy": "An active planning horizon can outrank an older static publication date for current operational guidance; publication, revision, and planning dates remain distinct lifecycle events."
+  },
+  "presentation": {
+    "formatter": "output_formatter.py",
+    "dynamic_prompt_specific_headings": true,
+    "duplicate_heading_suppression": true,
+    "validated_findings_heading": "Validated Findings",
+    "evidence_gaps_heading": "Remaining evidence gaps / Unsupported facets",
+    "implementation_sequence_header": "Implementation Sequence:",
+    "implementation_sequence_trigger": "explicit request containing 'implementation sequence'",
+    "implementation_sequence_placement": "immediately before evidence gaps",
+    "internal_diagnostics_suppressed_from_ui": true,
+    "claim_adjacent_citations": true,
+    "citation_coordinates": [
+      "printed_page",
+      "pdf_page"
+    ]
+  },
+  "provenance": {
+    "exact_span_validation": true,
+    "machine_log_format": "JSONL",
+    "claim_statuses": [
+      "SUPPORTED",
+      "PARTIALLY_SUPPORTED",
+      "UNSUPPORTED",
+      "INSUFFICIENT_EVIDENCE"
+    ],
+    "pipeline_trace_junction_count": 8
+  },
+  "evaluation": {
+    "baseline_path": "evaluation/baselines/offline.json",
+    "top_k": 6,
+    "offline_case_count": 83,
+    "offline_passed_count": 83,
+    "offline_failed_count": 0,
+    "seed": 0,
+    "metrics_version": 1,
+    "baseline_sha256": "c1bd699c1d9f5dc548482d760345f04670bc7bec335a2f8bb878873c292d719e"
+  },
+  "known_limitations": [
+    {
+      "id": "generation_microtransaction_completeness",
+      "title": "Semantic abstraction / generation completeness",
+      "frozen_behavior": "For comparative queries, the generator may prioritize macro-level thematic structures over exact micro-transaction numerical figures, including specific funding amounts such as $120,000, even when the relevant chunk clears the top_k retrieval threshold.",
+      "baseline_disposition": "accepted_known_limitation"
+    }
+  ],
+  "baseline_environment": {
+    "python": "3.12",
+    "required_environment": {
+      "V3_LLM_MODEL": "gpt-5.6-sol",
+      "V3_TOP_K": "6",
+      "V3_EMBEDDING_MODEL": "text-embedding-3-small",
+      "V3_EMBEDDING_DIMENSION": "1536"
+    },
+    "override_policy": "Any differing value constitutes a non-baseline run and must be reported."
+  }
+}

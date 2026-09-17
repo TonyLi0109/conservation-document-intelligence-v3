@@ -52,7 +52,7 @@ Quantitative cues require a nearby number and outcome language with useful topic
 
 | Environment variable | Default | Purpose |
 | --- | ---: | --- |
-| `V3_TOP_K` | 5 | Final answer evidence limit |
+| `V3_TOP_K` | 6 | Final answer evidence limit |
 | `V3_DENSE_TOP_K` | 48 | Dense candidate limit |
 | `V3_LEXICAL_TOP_K` | 48 | BM25 chunk candidate limit |
 | `V3_DOCUMENT_TOP_K` | 8 | Metadata candidate documents |
