@@ -140,6 +140,10 @@ class OutputFormatter:
         r"(?:solutions?|approaches?|strategies|recommendations?|actions?|options?|measures?)\b",
         re.I,
     )
+    _IMPLEMENTATION_SEQUENCE = re.compile(
+        r"\b(?:actionable\s+)?implementation\s+sequence\b",
+        re.I,
+    )
     _METADATA_AUDIT = re.compile(
         r"\b(?:metadata|date|lifecycle|version)\s+audit\b|"
         r"\baudit\s+(?:the\s+)?(?:metadata|dates?|lifecycle|version)\b|"
@@ -167,7 +171,15 @@ class OutputFormatter:
         if not match:
             return ()
         items = re.sub(r",?\s+(?:and|or)\s+", ",", match.group("items"), flags=re.I)
-        return tuple(dict.fromkeys(item.strip() for item in items.split(",") if item.strip()))
+        categories = []
+        seen = set()
+        for raw_item in items.split(","):
+            item = raw_item.strip()
+            key = item.casefold()
+            if item and key not in seen:
+                categories.append(item)
+                seen.add(key)
+        return tuple(categories)
 
     @classmethod
     def _category_for_claim(cls, text: str, categories: Sequence[str]) -> str | None:
@@ -239,20 +251,60 @@ class OutputFormatter:
 
     def _management(self, query, claims, sources) -> str:
         categories = self._requested_categories(query)
-        lines = []
-        previous_category = object()
-        for index, (claim, claim_sources) in enumerate(
-                zip(claims, sources, strict=True), 1):
-            category = self._category_for_claim(claim.text, categories)
-            if category is not None and category != previous_category:
-                if lines:
-                    lines.append("")
-                lines.extend([f"### {category}", ""])
-            lines.append(self._claim_line(
-                claim, claim_sources, f"{index}. ", strip_list_marker=True
-            ))
-            previous_category = category
-        return "\n".join(lines)
+        wants_sequence = bool(self._IMPLEMENTATION_SEQUENCE.search(query))
+        entries = [
+            (index, claim, claim_sources,
+             self._category_for_claim(claim.text, categories))
+            for index, (claim, claim_sources) in enumerate(
+                zip(claims, sources, strict=True), 1
+            )
+        ]
+
+        # Group by the requested category before rendering. A category can recur
+        # in the model's claim order, but its heading is emitted exactly once.
+        grouped = {category: [] for category in categories}
+        ungrouped = []
+        for entry in entries:
+            category = entry[3]
+            if category is None:
+                ungrouped.append(entry)
+            else:
+                grouped[category].append(entry)
+
+        sections = []
+        for category in categories:
+            items = grouped[category]
+            if not items:
+                continue
+            lines = []
+            for index, claim, claim_sources, _ in items:
+                prefix = "- " if wants_sequence else f"{index}. "
+                lines.append(self._claim_line(
+                    claim, claim_sources, prefix, strip_list_marker=True
+                ))
+            sections.append(f"### {category}\n\n" + "\n".join(lines))
+
+        if ungrouped:
+            lines = []
+            for index, claim, claim_sources, _ in ungrouped:
+                prefix = "- " if wants_sequence else f"{index}. "
+                lines.append(self._claim_line(
+                    claim, claim_sources, prefix, strip_list_marker=True
+                ))
+            sections.append("\n".join(lines))
+
+        if wants_sequence:
+            # The validated claim order is the chronology supplied by synthesis;
+            # the formatter does not infer, rewrite, or invent intermediate steps.
+            sequence = "\n".join(
+                self._claim_line(
+                    claim, claim_sources, f"{step}. ", strip_list_marker=True
+                )
+                for step, (_, claim, claim_sources, _) in enumerate(entries, 1)
+            )
+            sections.append(f"**Implementation Sequence:**\n\n{sequence}")
+
+        return "\n\n".join(sections)
     def format(self, query: str | None, response: SynthesisResponse,
                sources: Sequence[Sequence[KnowledgeArtifact]]) -> str:
         if response.status is SynthesisStatus.VALIDATION_FAILED:

@@ -209,6 +209,71 @@ def test_requested_management_categories_are_used_verbatim_and_empty_ones_are_om
     assert all(label not in rendered for label in ("### Control", "### Coordination", "### Prevention"))
 
 
+def test_actionable_sequence_deduplicates_categories_and_precedes_gaps():
+    technical_first = artifact(
+        text="Map wetland baselines before selecting runoff controls."
+    )
+    regulatory = artifact(
+        "DOC002", "Runoff Plan", "3", None,
+        "Coordinate Section 401 and Section 404 permits.",
+    )
+    technical_second = artifact(
+        "DOC003", "Treatment Plan", "8", None,
+        "Install engineered biofilters where runoff is concentrated.",
+    )
+    market = artifact(
+        "DOC004", "Funding Plan", "10", None,
+        "Apply for Section 319 grants and eligible easements.",
+    )
+    payload = envelope(
+        [
+            claim(technical_first.original_text_chunk, "K1",
+                  technical_first.original_text_chunk),
+            claim(regulatory.original_text_chunk, "K2",
+                  regulatory.original_text_chunk),
+            claim(technical_second.original_text_chunk, "K3",
+                  technical_second.original_text_chunk),
+            claim(market.original_text_chunk, "K4",
+                  market.original_text_chunk),
+        ],
+        ["Comparative implementation costs are unavailable."],
+    )
+    query = (
+        "What technological, regulatory, and market-based solutions should I implement? "
+        "Provide an actionable implementation sequence."
+    )
+
+    rendered, _ = validate_format_and_log(
+        payload,
+        {
+            "K1": technical_first,
+            "K2": regulatory,
+            "K3": technical_second,
+            "K4": market,
+        },
+        query=query,
+    )
+
+    assert rendered.count("### technological") == 1
+    assert rendered.count("### regulatory") == 1
+    assert rendered.count("### market-based") == 1
+    assert rendered.count("**Implementation Sequence:**") == 1
+    assert rendered.index("1. Map wetland baselines") < rendered.index(
+        "2. Coordinate Section 401"
+    )
+    assert rendered.index("2. Coordinate Section 401") < rendered.index(
+        "3. Install engineered biofilters"
+    )
+    assert rendered.index("3. Install engineered biofilters") < rendered.index(
+        "4. Apply for Section 319"
+    )
+    assert rendered.index("**Implementation Sequence:**") < rendered.index(
+        "**Remaining evidence gaps / Unsupported facets:**"
+    )
+    assert "- Map wetland baselines" in rendered
+    assert "[DOC001" in rendered and "[DOC004" in rendered
+
+
 def test_internal_metadata_facets_are_hidden_unless_query_requests_an_audit():
     source = artifact()
     payload = envelope(
