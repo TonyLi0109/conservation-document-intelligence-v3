@@ -67,7 +67,7 @@ def normalize_user_facing_answer(
 
     rendered = "\n".join(lines).strip()
     already_prefixed = bool(re.match(
-        r"^\s*\*\*(?:Validated Findings:?|Answer:\s*Supported:?)\*\*",
+        r"^\s*\*\*(?:Validated Findings:?|Answer:|Answer:\s*Supported:?)\*\*",
         rendered,
         re.I,
     ))
@@ -90,13 +90,21 @@ class OutputFormatter:
     # Explicit requests for observed evidence describe the desired answer form,
     # even when their subject contains domain verbs such as "control efforts".
     _FACTUAL_EVIDENCE = re.compile(
-        r"\b(?:what evidence|quantitative (?:results?|evidence|data)|"
+        r"\b(?:what evidence|provide(?:s|d)? evidence|quantitative (?:results?|evidence|data)|"
         r"how (?:much|many)|show(?:s|ed|ing)? that)\b",
         re.I,
     )
     _COMPARISON = re.compile(r"\b(?:compar\w*|differ\w*|contrast\w*|versus|vs\.?)\b", re.I)
     _TEMPORAL = re.compile(r"\b(?:current|latest|newest|most recent|as of|revised|updated|supersed\w*)\b", re.I)
     _MANAGEMENT = re.compile(r"\b(?:manage\w*|recommend\w*|action plan|implement\w*|mitigat\w*|control\w*|priorit\w*|next steps?)\b", re.I)
+    _CAUSAL_POLAR_QUESTION = re.compile(
+        r"^\s*(?:do|does|did|has|have|is|are|was|were|can)\b[\s\S]*\bcaus(?:e|es|ed|ing)\b",
+        re.I,
+    )
+    _DIRECT_CAUSAL_GAP = re.compile(
+        r"\b(?:direct(?:ly)?\s+caus\w*|causal\s+(?:attribution|evidence|link|relationship)|causation)\b",
+        re.I,
+    )
 
     def __init__(self, citation: Callable[[KnowledgeArtifact], str]) -> None:
         self.citation = citation
@@ -184,6 +192,35 @@ class OutputFormatter:
             facets = [facet for facet in facets if not cls._METADATA_BOILERPLATE.search(facet)]
         return format_evidence_gaps(facets)
 
+    @classmethod
+    def _has_direct_causal_gap(
+        cls, query: str | None, response: SynthesisResponse
+    ) -> bool:
+        """Identify a negative causal answer from the validator's gap state.
+
+        Related associations can still be rendered as validated findings, but an
+        unsupported direct-causation facet must never be presented as "Yes.".
+        """
+
+        return bool(
+            query
+            and cls._CAUSAL_POLAR_QUESTION.search(query)
+            and any(cls._DIRECT_CAUSAL_GAP.search(str(facet))
+                    for facet in response.unsupported_facets)
+        )
+
+    @staticmethod
+    def _negative_causal_conclusion(query: str) -> str:
+        match = re.search(
+            r"\bprovide(?:s|d)?\s+evidence\s+that\s+(.+?)(?:\?|$)",
+            query,
+            re.I | re.S,
+        )
+        if match:
+            proposition = " ".join(match.group(1).split()).rstrip(".!?")
+            return f"No. The corpus does not provide direct causal evidence that {proposition}."
+        return "No. The corpus does not provide the requested direct causal evidence."
+
     def _comparison(self, claims, sources) -> str:
         groups = defaultdict(list)
         titles = {}
@@ -247,7 +284,20 @@ class OutputFormatter:
             else:
                 body = "\n\n".join(self._claim_line(claim, group, "- ")
                                    for claim, group in zip(response.claims, sources, strict=True))
+        causal_gap = self._has_direct_causal_gap(query, response)
+        if causal_gap:
+            # The claim remains unchanged in the provenance log. Only remove the
+            # contradictory presentation token from related contextual evidence.
+            body = re.sub(
+                r"^(?P<marker>\s*(?:[-*+]\s+)?)Yes\.\s+",
+                r"\g<marker>",
+                body,
+                count=1,
+                flags=re.I,
+            )
         supported = f"{VALIDATED_FINDINGS_HEADING}\n\n{body}"
+        if causal_gap and query is not None:
+            supported = f"**Answer:** {self._negative_causal_conclusion(query)}\n\n{supported}"
         rendered = f"{supported}\n\n{missing}" if missing else supported
         return normalize_user_facing_answer(
             rendered, has_validated_findings=True

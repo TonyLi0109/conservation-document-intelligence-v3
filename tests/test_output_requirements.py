@@ -104,6 +104,41 @@ def test_quantitative_evidence_preempts_management_template():
     assert "**Recommendations by category**" not in rendered
     assert "**Implementation sequence**" not in rendered
 
+
+def test_missing_direct_causation_cannot_render_as_yes():
+    source = artifact(
+        doc_id="DOC036",
+        title="2022 Missouri Comprehensive Conservation Strategy",
+        page="124",
+        text=("Extreme floods caused invasive-species establishment in some areas, "
+              "but those floods were not attributed to climate change."),
+    )
+    contextual = (
+        "Yes. Extreme floods caused invasive-species establishment in some areas, "
+        "but those floods were not attributed to climate change."
+    )
+    payload = envelope(
+        [claim(contextual, "K1", source.original_text_chunk)],
+        ["Direct causal attribution showing that climate change caused a specific "
+         "invasive-species problem in Missouri"],
+    )
+    query = (
+        "Does the corpus provide evidence that climate change causes invasive species "
+        "problems in Missouri? Distinguish direct evidence from general associations or risks."
+    )
+
+    rendered, _ = validate_format_and_log(payload, {"K1": source}, query=query)
+
+    assert rendered.startswith(
+        "**Answer:** No. The corpus does not provide direct causal evidence that "
+        "climate change causes invasive species problems in Missouri."
+    )
+    assert "Yes." not in rendered
+    assert "**Validated Findings:**" in rendered
+    assert "Extreme floods caused" in rendered
+    assert "**Remaining evidence gaps / Unsupported facets:**" in rendered
+
+
 def test_management_template_owns_list_numbering():
     first = artifact(text="1. Map wetland baselines.")
     second = artifact("DOC002", "Runoff Plan", "3", None,

@@ -35,6 +35,8 @@ CLAIMS AND EVIDENCE
 - Prefer concise synthesis: normally one to five claims, with no factual introduction or conclusion.
 - Obey explicit answer-length words in the question. If it asks for a "short", "brief", or "concise" answer, return no more than two claims, keep each claim to one sentence, and include only the strongest directly relevant evidence. Do not turn a short summary into a document-by-document inventory unless explicitly requested.
 - For a yes/no question beginning with Are, Is, Do, Does, Did, Has, Have, Was, or Were, the first answered claim MUST begin with exactly "Yes." or "No." before the evidence-grounded explanation.
+- For a causal yes/no question, answer "Yes." only when the evidence explicitly attributes the requested outcome to the requested cause in the requested geographic scope. Language about association, interaction, risk, possibility, favorable conditions, or an intermediate event does not establish that causal chain.
+- When direct causation is unavailable but related associations or risks are supported, use "No." for the direct-causation answer, report the weaker contextual findings separately without an affirmative "Yes." prefix, and name the missing direct causal attribution in unsupported_facets.
 
 PREAMBLE
 - preamble is conversational application context, not a factual evidence claim and not a citation.
