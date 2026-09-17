@@ -117,10 +117,10 @@ def test_missing_direct_causation_cannot_render_as_yes():
         "Yes. Extreme floods caused invasive-species establishment in some areas, "
         "but those floods were not attributed to climate change."
     )
+    # Reproduce the regression: the model incorrectly reports a complete answer
+    # and omits the direct-causation gap.
     payload = envelope(
         [claim(contextual, "K1", source.original_text_chunk)],
-        ["Direct causal attribution showing that climate change caused a specific "
-         "invasive-species problem in Missouri"],
     )
     query = (
         "Does the corpus provide evidence that climate change causes invasive species "
@@ -137,6 +137,33 @@ def test_missing_direct_causation_cannot_render_as_yes():
     assert "**Validated Findings:**" in rendered
     assert "Extreme floods caused" in rendered
     assert "**Remaining evidence gaps / Unsupported facets:**" in rendered
+
+
+def test_explicit_single_sentence_causation_can_remain_yes():
+    source = artifact(
+        doc_id="DOC036",
+        title="Missouri Climate Assessment",
+        page="124",
+        text="Climate change caused invasive species problems in Missouri.",
+    )
+    payload = envelope([
+        claim(
+            "Yes. Climate change caused invasive species problems in Missouri.",
+            "K1",
+            source.original_text_chunk,
+        )
+    ])
+    query = (
+        "Does the corpus provide evidence that climate change causes invasive species "
+        "problems in Missouri?"
+    )
+
+    rendered, _ = validate_format_and_log(payload, {"K1": source}, query=query)
+
+    assert rendered.startswith("**Validated Findings:**")
+    assert "Yes. Climate change caused" in rendered
+    assert "**Answer:** No." not in rendered
+    assert "Remaining evidence gaps" not in rendered
 
 
 def test_management_template_owns_list_numbering():

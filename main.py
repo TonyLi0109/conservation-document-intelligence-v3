@@ -33,7 +33,10 @@ from prompts import SYSTEM_PROMPT, answer_length_constraints, build_synthesis_pr
 from source_catalog import load_source_catalog
 from validator import validate_render_and_collect_sources
 from validator import VALIDATION_FAILED_MESSAGE, format_artifact_location
-from validation_presentation import validate_format_and_log
+from validation_presentation import (
+    enforce_causal_evidence_boundary,
+    validate_format_and_log,
+)
 
 
 DEFAULT_TOP_K = SETTINGS.retrieval.top_k
@@ -488,6 +491,7 @@ def ask_chatbot_with_context(
         if not isinstance(envelope, dict) or set(envelope) != expected_fields:
             raise ValueError("Chatbot response does not match the synthesis envelope")
         _ensure_polar_answer_prefix(question, envelope)
+        enforce_causal_evidence_boundary(envelope, question)
         preamble = envelope.pop("preamble")
         if not isinstance(preamble, str):
             raise TypeError("Chatbot preamble must be a string")
