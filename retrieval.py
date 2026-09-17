@@ -14,6 +14,7 @@ import time
 import unicodedata
 
 from config import SETTINGS
+from query_normalization import strip_wrapping_query_quotes
 
 
 _STOP = set("a an and are as at be been being by can could did do does for from had has have how i if in into is it its me of on or our please should so than that the their them these they this those to was we were what when where which who why will with would you your".split())
@@ -191,6 +192,9 @@ def retrieve_evidence(store, query, *, query_embedding=None, top_k=5,
     from retrieval_index import ensure_retrieval_index, lexical_candidates, document_candidates
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty string")
+    query = strip_wrapping_query_quotes(query)
+    if not query:
+        raise ValueError("query must contain text inside wrapping quotes")
     if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1:
         raise ValueError("top_k must be a positive integer")
     if mode not in {"dense", "lexical", "hybrid", "hybrid_rerank"}:

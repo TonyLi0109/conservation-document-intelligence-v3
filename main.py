@@ -19,6 +19,7 @@ import sys
 
 from api_clients import call_llm, generate_embedding, generate_embeddings
 from chat_context import is_named_entity, matches_subject, resolve_query
+from query_normalization import strip_wrapping_query_quotes
 from config import SETTINGS
 from data_models import KnowledgeArtifact
 from database import KnowledgeStore
@@ -295,6 +296,9 @@ def ask_chatbot_with_context(
 
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question must be a non-empty string")
+    question = strip_wrapping_query_quotes(question)
+    if not question:
+        raise ValueError("question must contain text inside wrapping quotes")
     _require_store_interface(store, "retrieve", "retrieve_document_matches")
 
     original_question = question
@@ -906,6 +910,9 @@ def search_corpus(
 
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty string")
+    query = strip_wrapping_query_quotes(query)
+    if not query:
+        raise ValueError("query must contain text inside wrapping quotes")
     _require_store_interface(store, "retrieve")
     from temporal import detect_temporal_intent, select_temporal_evidence
     intent = detect_temporal_intent(query, documents=[dict(r) for r in store.connection.execute(

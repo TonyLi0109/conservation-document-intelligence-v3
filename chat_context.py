@@ -12,6 +12,7 @@ import json
 import re
 
 from api_clients import call_structured_llm
+from query_normalization import strip_wrapping_query_quotes
 
 
 MAX_HISTORY_MESSAGES = 6
@@ -338,6 +339,7 @@ def _temporal_followup(question: str, recent: list[dict[str, object]]) -> Resolv
 def resolve_query(question: str, history: Sequence[Mapping[str, object]] | None = None,
                   *, model: str | None = None) -> ResolvedQuery:
     """Resolve before embedding/search, with no model call for independent turns."""
+    question = strip_wrapping_query_quotes(question)
     recent = _recent_history(history or [])
     # Start at the most recent independent user turn. A new subject also becomes
     # the anchor for the next implicit follow-up, even without saved diagnostics.
