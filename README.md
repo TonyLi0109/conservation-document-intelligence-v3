@@ -5,6 +5,13 @@ conservation corpus plus the 2022 Missouri Comprehensive Conservation Strategy.
 It borrows useful ideas from both reference implementations, but owns its data
 contracts, source registry, storage, validation, and knowledge-compilation flow.
 
+## Research onboarding and benchmark reproduction
+
+- [Frozen judging reproduction guide](docs/experiment_guide.md)
+- [15-20 minute code walkthrough checklist](docs/CODE_WALKTHROUGH_CHECKLIST.md)
+- [Weekly progress report template](docs/WEEKLY_PROGRESS_REPORT_TEMPLATE.md)
+- [Frozen page corpus access and checksum](docs/CORPUS_ACCESS.md)
+
 ## What is distinct about V3
 
 - Raw `KnowledgeArtifact` chunks are immutable evidence, not generated summaries.

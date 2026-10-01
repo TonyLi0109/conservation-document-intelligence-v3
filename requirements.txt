@@ -7,3 +7,9 @@ python-dotenv>=1.0.0
 streamlit>=1.40.0
 requests>=2.31.0
 pytest>=8.0.0
+# Milestone B: conventional IR baselines.
+rank-bm25==0.2.2
+sentence-transformers==6.1.0
+
+# Milestone B: provider-neutral frontier LLM retrieval.
+litellm==1.102.0

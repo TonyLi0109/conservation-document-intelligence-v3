@@ -35,3 +35,8 @@ traces/
 .idea/
 .DS_Store
 Thumbs.db
+# Public-repository exclusions for research benchmark artifacts
+benchmark/corpus_pages.jsonl
+benchmark/**/.checkpoints/
+benchmark/llm_traces*/
+benchmark/haiku_*/
