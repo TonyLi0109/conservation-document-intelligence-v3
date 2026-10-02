@@ -27,3 +27,19 @@ def test_freeze_document_and_manifest_paths_exist():
     assert "(?P<start>20\\d{2})" in document
     assert "(?P<end>20\\d{2})" in document
     assert (ROOT / "evaluation" / "baselines" / "offline.json").is_file()
+
+
+def test_reviewed_ir_benchmark_manifest_is_frozen():
+    manifest = json.loads((ROOT / "v3_baseline_config.json").read_text(encoding="utf-8"))
+    benchmark = manifest["research_benchmark"]
+
+    assert benchmark["benchmark_id"] == "CDIRP-V3-IR-V2-REVIEWED"
+    assert benchmark["candidate_generation"]["cutoff"] == 20
+    assert len(benchmark["candidate_generation"]["systems"]) == 10
+    assert benchmark["candidate_pool"]["unique_query_page_pairs"] == 761
+    assert benchmark["judging"]["required_complete_judges"] == 3
+    assert benchmark["judging"]["two_judge_substitution_allowed"] is False
+    assert benchmark["consensus"]["qrels_rows"] == 761
+    assert benchmark["consensus"]["core_pages"] == 62
+    assert benchmark["core_groups"]["group_count"] == 37
+    assert benchmark["evaluation"]["judged_coverage"] == 1.0

@@ -1,96 +1,68 @@
-# CDIRP V3 Experimental Baseline Freeze
+# CDIRP V3 Baseline Freeze
 
-> **Status:** Frozen experimental baseline
 > **System:** CDIRP V3
-> **Release tag:** `v3.0-experimental-baseline`
-> **Freeze date:** September 17, 2026
+> **Production baseline:** `v3.0-experimental-baseline` (September 17, 2026)
+> **Reviewed IR benchmark revision:** `CDIRP-V3-IR-V2-REVIEWED`
+> **Benchmark tag:** `v3.1-ir-benchmark-v2-reviewed`
+> **Reviewed snapshot:** October 1, 2026
+> **Document updated:** October 2, 2026
 > **Live deployment:** <https://conservation-document-intelligence-v3.streamlit.app/>
 
-## 1. Purpose and scope
+## 1. Scope and version boundary
 
-This document defines the reproducible **V3 Experimental Baseline** for the Conservation Document Intelligence and Retrieval Platform (CDIRP V3) before any corpus-scale expansion. It freezes the code path, corpus identity, model selection, retrieval limits, lifecycle policy, provenance boundary, presentation behavior, and offline evaluation gate used for subsequent comparisons.
+This file is the current reproducibility contract for CDIRP V3. It freezes two related but distinct layers:
 
-The Git tag is the authoritative source-code identity. The companion [`v3_baseline_config.json`](v3_baseline_config.json) is the machine-readable parameter contract. A run is a V3 baseline run only when it uses the tagged code, the identified corpus, and the locked configuration below. Any override must be reported as an experimental deviation.
+1. **Production RAG baseline:** the deployed answer-generation pipeline, using hybrid retrieval and a final evidence limit of `top_k=6`.
+2. **Reviewed IR benchmark:** the page-level retrieval experiment over nine diagnostic questions, using Top-20 candidate runs, a frozen pool of 761 query-page pairs, three independent blind judges, consensus qrels, and 37 human-reviewed evidence-facet core groups.
 
-## 2. Release identity
+The original production tag remains immutable. The reviewed IR benchmark receives its own tag rather than moving `v3.0-experimental-baseline`. The companion [`v3_baseline_config.json`](v3_baseline_config.json) records both layers in machine-readable form.
 
-| Field | Frozen value |
-| --- | --- |
-| System name | CDIRP V3 |
-| Release label | V3 Experimental Baseline |
-| Git tag | `v3.0-experimental-baseline` |
-| Freeze date | September 17, 2026 |
-| Implementation parent | `483b7c3f9924ee260d1293675cfc0cab6ce3e7ee` |
-| Tag target | The commit containing this document and its machine-readable manifest |
+## 2. Current frozen identities
+
+| Layer | Frozen identity |
+|---|---|
+| System | CDIRP V3 |
+| Production tag | `v3.0-experimental-baseline` |
+| Production freeze | 2026-09-17 |
+| Reviewed benchmark ID | `CDIRP-V3-IR-V2-REVIEWED` |
+| Reviewed benchmark tag | `v3.1-ir-benchmark-v2-reviewed` |
+| Reviewed snapshot | 2026-10-01 |
 | Python runtime | Python 3.12 |
-| Deployment | Streamlit Community Cloud, tracking `main` |
+| Diagnostic questions | Q1–Q9 |
+| Live deployment | Streamlit Community Cloud, tracking `main` |
 
-The implementation-parent commit identifies the final functional state before the freeze manifest and K=6 consistency changes were added. The release tag, rather than the parent commit, must be used to reproduce the complete baseline.
+Provider-backed calls are not bit-for-bit deterministic. Reproducibility means that inputs, prompts, model identifiers, candidate depth, consensus rules, artifact hashes, and evaluation definitions are fixed and reported.
 
-## 3. Model configuration
+## 3. Production RAG baseline
+
+### 3.1 Models
 
 | Component | Frozen value |
-| --- | --- |
-| Core reasoning engine | **GPT-5.6sol** |
-| Runtime model ID | `gpt-5.6-sol` |
+|---|---|
+| Default reasoning engine | `gpt-5.6-sol` |
 | Alternate UI model | `gpt-4.1-mini` |
-| Baseline model | `gpt-5.6-sol` only |
 | Embedding model | `text-embedding-3-small` |
 | Embedding dimension | 1,536 |
 | Maximum chatbot output | 2,500 tokens |
-| Provider request timeout | 30 seconds |
-| Embedding batch size | 100 |
 
-The alternate model remains available for controlled comparison, but a response generated with `gpt-4.1-mini` is not a baseline generation result.
+A response generated with the alternate UI model is not a production-baseline generation result.
 
-Provider-backed generation is not bit-for-bit deterministic. Reproducibility therefore means configuration, evidence selection, validation rules, and evaluation gates are fixed; it does not claim identical wording across repeated live model calls.
+### 3.2 Retrieval architecture
 
-## 4. Corpus identity
+The production path uses `hybrid_rerank`:
 
-The baseline corpus is the curated **36-source Missouri conservation corpus**.
-
-| Property | Frozen value |
-| --- | --- |
-| Canonical documents | 36 |
-| Canonical evidence artifacts | 964 |
-| SQLite database | `data/corpus.db` |
-| Source catalog | `data/source_catalog.csv` |
-| Committed database SHA-256 | `4d5bb333c07db69302fc8bc1617b4ab0de490b89aac62a3ea1016e9334ea6b70` |
-| Committed catalog SHA-256 | `71d95c4815d97ed458072a8318d33591dadfef91cbc40a154ae96bef34e916b7` |
-| Logical SQLite fingerprint | `sqlite-logical-v1:0d7529068b35d58933d315cf45a41c2d2d77e59df3c9821129288149ccea6b3e` |
-
-The SHA-256 values refer to the Git blobs in the release tag. Runtime-created FTS indexes, caches, SQLite journaling, or local database writes can change the working-file byte hash without changing the reviewed corpus. Use the tagged Git blob and the logical fingerprint for verification.
-
-### Chunking
-
-| Parameter | Value |
-| --- | ---: |
-| Target words per chunk | 750 |
-| Overlap words | 100 |
-| Page processing timeout | 60 seconds |
-
-## 5. RCA-refined retrieval architecture
-
-Production retrieval uses `hybrid_rerank` and returns exactly **`top_k = 6`** final evidence chunks when six eligible chunks exist.
-
-### 5.1 Candidate generation and fusion
-
-1. Resolve conversation context and normalize whole-query quote wrappers.
-2. Detect explicit document titles and stable document IDs.
-3. Generate lexical candidates with SQLite FTS5/BM25.
-4. Generate dense candidates with `text-embedding-3-small` when embeddings are available.
-5. Recover document-level candidates and representative chunks.
-6. Fuse lexical and dense rankings with reciprocal rank fusion (RRF).
-7. Apply deterministic query-aware reranking and duplicate suppression.
+1. Normalize the query and resolve conversation context.
+2. Detect exact document titles and stable document IDs.
+3. Retrieve lexical SQLite FTS5/BM25 candidates.
+4. Retrieve dense candidates when embeddings are available.
+5. Add document-level candidates and representative chunks.
+6. Fuse rankings using reciprocal rank fusion.
+7. Apply query-aware reranking and duplicate suppression.
 8. Apply document-level diversity selection for explicitly targeted multi-document comparisons.
 
-The deployed path remains hybrid when dense embeddings are available. If the embedding provider is unavailable, the lexical/document path remains operational, but that fallback must not be reported as dense hybrid retrieval.
-
-### 5.2 Frozen retrieval parameters
-
-| Parameter | Value |
-| --- | ---: |
-| Final `top_k` | **6** |
+| Parameter | Frozen value |
+|---|---:|
+| Final answer evidence `top_k` | **6** |
 | Dense candidates | 48 |
 | Lexical candidates | 48 |
 | Fused candidates | 96 |
@@ -101,161 +73,259 @@ The deployed path remains hybrid when dense embeddings are available. If the emb
 | Duplicate threshold | 0.85 |
 | Diversity decay | 1.0 |
 
-`V3_TOP_K=6` is required for the baseline. Supplying another value through an environment variable, function argument, CLI flag, or test fixture defines a non-baseline experiment.
+`V3_TOP_K=6` applies to the deployed RAG context. It does **not** define the research benchmark candidate depth.
 
-### 5.3 Document-level diversity penalty
+### 3.3 Routing and lifecycle rules
 
-The diversity layer is a simplified document-level MMR mechanism. It activates when a comparison query resolves multiple explicit target documents. It first reserves eligible coverage across unseen targets, then discounts subsequent chunks from a document already represented:
-
-```text
-utility(chunk) =
-    1 / (60 + fused_rank(chunk))
-    / (1 + 1.0 * selected_count(document_id))
-```
-
-This policy reduces evidence starvation while preserving canonical chunks and provenance. It is not a semantic confidence score and is not applied indiscriminately to every query.
-
-### 5.4 Title-aware routing
-
-Exact corpus titles and uniquely resolved comparison titles become hard document scopes. Years embedded in recognized titles do not, by themselves, force a `temporal_comparison` route. This prevents year tokens such as `2022` and `2015` from bypassing normal comparison synthesis or allowing unrelated keyword-heavy documents to monopolize evidence.
-
-### 5.5 Lifecycle extraction and currentness
-
-`document_lifecycle.py` extracts planning periods with the frozen rule:
+- Exact titles and uniquely resolved comparison targets become hard document scopes.
+- Years embedded in recognized titles do not force a temporal-comparison route.
+- Whole-query straight or curly quote wrappers are normalized before routing and retrieval.
+- Planning periods are extracted with:
 
 ```regex
 \b(?P<start>20\d{2})\s*(?:[-\u2013\u2014]|to|through)\s*(?P<end>20\d{2})\b
 ```
 
-The lifecycle record stores `planning_period.start_year` and `planning_period.end_year` with exact evidence. For current operational guidance, an active planning-period end year can take precedence over an older static publication date. Publication dates, revision dates, effective dates, and planning horizons remain distinct events. A newer date alone does not prove authority, replacement, or supersession.
+An active planning-period end year can establish a current operational horizon. Publication, revision, effective, catalog, and planning dates remain distinct lifecycle events.
 
-## 6. Provenance and trace boundary
+### 3.4 Provenance and presentation
 
-Every answer claim is validated against opaque evidence handles and exact, contiguous source spans before trusted citations are rendered. Machine-readable claim states are:
+Claim-validation states are:
 
 - `SUPPORTED`
 - `PARTIALLY_SUPPORTED`
 - `UNSUPPORTED`
 - `INSUFFICIENT_EVIDENCE`
 
-The JSONL provenance record retains claim text, document ID, printed page, PDF page, exact evidence span, and validation status. The user interface never treats retrieval or reranking scores as provenance confidence.
+`PipelineTracer` records the eight junctions from `original_query` through `final_output`. The UI keeps citations adjacent to claims, separates **Validated Findings** from **Remaining evidence gaps / Unsupported facets**, suppresses internal diagnostic strings, derives requested headings from the question, and emits an implementation sequence when explicitly requested.
 
-`PipelineTracer` preserves the eight diagnostic junctions:
+## 4. Frozen page corpus for the IR benchmark
 
-1. `original_query`
-2. `rewritten_query`
-3. `initial_retrieval`
-4. `reranked_evidence`
-5. `llm_context_payload`
-6. `draft_answer`
-7. `validation_results`
-8. `final_output`
+| Property | Frozen value |
+|---|---|
+| Source documents | 36 |
+| Page records | 1,884 |
+| Canonical page ID | `DOC###_P####` |
+| Artifact | `benchmark/corpus_pages.jsonl` |
+| SHA-256 | `df1c18ea6c862e577309990d0b537e072210848b17a31078f6bc0f30a21b9e07` |
+| Questions | `benchmark/questions.csv`, Q1–Q9 |
 
-## 7. Frozen presentation contract
+The page corpus contains extracted source text and is an authorized-project artifact. It is excluded from the public repository and must be transferred through the approved private reproducibility package.
 
-`output_formatter.py` operates only on claims that passed the existing provenance boundary.
+## 5. Candidate generation and frozen pool
 
-- **Dynamic structural alignment:** headings come from the user's requested dimensions.
-- **Duplicate suppression:** each dynamic category heading is emitted once; repeated categories are merged.
-- **State isolation:** supported content appears under **Validated Findings**. Missing or rejected facets appear under **Remaining evidence gaps / Unsupported facets**.
-- **Actionable sequence extraction:** an explicit request containing `implementation sequence` produces a concise numbered **Implementation Sequence:** immediately before the evidence-gap block.
-- **Adjacent citations:** each rendered claim or step retains its own citation.
-- **Dual-coordinate locations:** where the two coordinates differ, citations render both, for example `[printed p. 11; PDF p. 27]`.
-- **UI hygiene:** raw source excerpts, lifecycle debug strings, catalog conflicts, global machine status, and provenance-failure diagnostics remain in logs rather than user-facing prose.
-- **No table completion:** the formatter does not invent content to fill requested categories, table cells, or comparison dimensions.
+### 5.1 Ten evaluated systems
 
-## 8. Known frozen limitation
+| System ID | System | Frozen depth |
+|---|---|---:|
+| `bm25` | BM25 | 20 per query |
+| `dense` | `all-MiniLM-L6-v2` dense retrieval | 20 per query |
+| `hybrid` | BM25 + dense RRF | 20 per query |
+| `llm_a` | GPT-5.6 Sol | exactly 20 per query |
+| `llm_b` | Claude Sonnet 5 | exactly 20 per query |
+| `llm_c` | Gemini 3.1 Pro Preview | exactly 20 per query |
+| `gpt_6_luna` | GPT-6 Luna | exactly 20 per query |
+| `claude_haiku` | Claude Haiku 4.5 | exactly 20 per query |
+| `gemini_flash` | Gemini 3.7 Flash | exactly 20 per query |
+| `copilot` | Sponsor-supplied Microsoft Copilot run | 16 pages total at available depth |
 
-### Semantic abstraction / generation completeness
+The six API-backed LLM retrievers use the same corpus-only prompt and must return exactly 20 distinct pages per query. Internal hierarchical-reduction calls may use smaller batch targets; the final run depth remains exactly 20.
 
-For comparative questions, the generator can prioritize macro-level thematic structures over exact micro-transaction figures. A relevant chunk may successfully survive retrieval and enter the six-chunk context while the generated comparison omits a specific number, such as a **$120,000** funding amount.
+Copilot is retained as the tenth external system. Its supplied run contains 1–3 pages per query, so it may be evaluated at available depth but must not be described as a Top-20, Top-50, or Top-100 run.
 
-This is an accepted baseline behavior. It is a generation-completeness limitation, not necessarily a retrieval failure. Future work must measure and report improvements against this frozen behavior rather than silently changing the baseline.
+### 5.2 Pool identity
 
-## 9. Offline evaluation baseline
+| Property | Frozen value |
+|---|---|
+| Candidate pool | `benchmark/pools/candidate_pool_v2_761.jsonl` |
+| Unique query-page pairs | **761** |
+| SHA-256 | `c41e97b6a62144f1aae59d830ec7e425daeed05729e6e6d062e5c69269597216` |
+| Deduplication key | `(query_id, page_id)` |
 
-The reviewed offline baseline is stored at `evaluation/baselines/offline.json`.
+Candidate provenance, retrieval rank, and selection count are retained for retrieval diagnostics but removed before judge prompt construction.
 
-| Measure | Frozen result |
-| --- | ---: |
-| Configuration `top_k` | 6 |
-| Seed | 0 |
-| Metrics version | 1 |
+## 6. V2 independent blind judging
+
+| Setting | Frozen value |
+|---|---|
+| Prompt version | `core-evidence-v2-2026-09-30` |
+| Judge A | `openai/gpt-5.6-sol` |
+| Judge B | `anthropic/claude-sonnet-5` |
+| Judge C | `gemini/gemini-3.1-pro-preview` |
+| Input per judgment | Question, page ID, document title, complete page text |
+| Hidden from judges | Retriever identity, provenance, rank, selection count, other judge outputs |
+| Records per judge | 761 |
+
+Each judge returns:
+
+- `grade` from 0 to 4;
+- `core_facet` when the page is graded 4;
+- `redundancy_group_hint` when applicable;
+- a short `rationale`.
+
+A formal consensus requires all three judgments. A missing grade is an incomplete triplet; it is neither replaced by a two-judge mean nor imputed as zero.
+
+## 7. Consensus qrels
+
+For grades `r1`, `r2`, and `r3`:
+
+```text
+MeanRel = (r1 + r2 + r3) / 3
+Range = max(r1, r2, r3) - min(r1, r2, r3)
+Variance = sum((ri - MeanRel)^2) / 3
+```
+
+- **Relevant:** `MeanRel >= 2.5` and at least two judges assign `grade >= 2`.
+- **Page-level core:** `MeanRel >= 3.5` and at least two judges assign `grade == 4`.
+- **Final grade:** nearest integer using half-up rounding, clamped to 0–4.
+
+| Artifact | Frozen value |
+|---|---|
+| Consensus qrels | `benchmark/qrels/consensus_qrels_v2.csv` |
+| Rows | 761 |
+| Relevant pages | 127 |
+| Page-level core pages | 62 |
+| SHA-256 | `f7c2fc3177bdc0182d5e5dc1523cd07393cf96c693457e144b2ef532978489db` |
+
+## 8. Human-reviewed core groups
+
+Page-level core pages can be redundant. Human review consolidates pages that support the same indispensable evidence facet.
+
+| Property | Frozen value |
+|---|---|
+| Artifact | `benchmark/qrels/core_groups.json` |
+| Reviewed groups | **37** across Q1–Q9 |
+| Assigned page-level core pages | 62 of 62 |
+| SHA-256 | `eb60a35182df4e44b6c9764111631e02044a4c58f0c4c9905329b27363770187` |
+
+`CoreGroupRecall@20` gives credit when a run retrieves at least one member of a reviewed group. This prevents equivalent pages from inflating the denominator.
+
+## 9. Reviewed ten-system Top-20 evaluation
+
+Metrics are macro-averaged across Q1–Q9. All retrieved pages in the frozen runs have judged coverage `1.0000`.
+
+| System | Relevant Recall@20 | Page CoreRecall@20 | CoreGroupRecall@20 | nDCG@20 | MRR |
+|---|---:|---:|---:|---:|---:|
+| BM25 | 0.3945 | 0.3632 | 0.3870 | 0.3709 | 0.4027 |
+| Dense | 0.4157 | 0.4637 | 0.5315 | 0.4731 | 0.4660 |
+| Hybrid RRF | 0.5112 | 0.5576 | 0.5815 | 0.5563 | 0.6671 |
+| GPT-5.6 Sol | 0.8277 | 0.9117 | 0.9889 | 0.8981 | 1.0000 |
+| Claude Sonnet 5 | 0.5754 | 0.6935 | 0.7519 | 0.7168 | 1.0000 |
+| Gemini 3.1 Pro | 0.7438 | 0.7876 | 0.8259 | 0.8549 | 1.0000 |
+| Copilot, available depth | 0.0629 | 0.0699 | 0.1037 | 0.0770 | 0.2593 |
+| GPT-6 Luna | 0.7726 | 0.8681 | 0.9222 | 0.8979 | 1.0000 |
+| Claude Haiku 4.5 | 0.3928 | 0.4807 | 0.5833 | 0.6049 | 0.8611 |
+| Gemini 3.7 Flash | 0.8317 | 0.9276 | 0.9667 | 0.9335 | 1.0000 |
+
+Primary artifact: `benchmark/analysis/system_evaluation_v2_reviewed.csv`, SHA-256 `e97323aeb8b7b87685ca6c278fca0c85a3c747cebbd5132122df30feb7eb3fb2`.
+
+Copilot's row reports its frozen available depth. Its lower recall is not a like-for-like Top-20 result.
+
+## 10. Repeat-judging stability
+
+A complete independent repeat judged the same 761 pairs with the same prompt and model configuration.
+
+| Judge | Exact grade agreement | MAE | Quadratic weighted kappa | Grade-4 Jaccard |
+|---|---:|---:|---:|---:|
+| GPT-5.6 Sol | 0.8844 | 0.1156 | 0.9660 | 0.8105 |
+| Claude Sonnet 5 | 0.8896 | 0.1143 | 0.9656 | 0.7922 |
+| Gemini 3.1 Pro | 0.8883 | 0.1156 | 0.9619 | 0.8358 |
+
+Consensus membership stability:
+
+- Repeat relevant pages: 128; reviewed baseline: 127.
+- Repeat provisional core pages: 60; reviewed baseline: 62.
+- Relevant-page Jaccard: 0.9173.
+- Core-page Jaccard: 0.8485.
+
+The repeat groups remain provisional and do not replace the 37 human-reviewed baseline groups.
+
+## 11. Depth diagnostics
+
+Independent Top-100 depth runs exist for the nine programmatic retrievers. Each contains exactly 100 unique pages per question. Their Top-20 prefixes can differ from the frozen primary Top-20 runs because LLM retrieval is variable; depth-run prefixes must not silently replace the reviewed Top-20 runs.
+
+The original six-system frozen Top-20 union covers 36 of the 37 reviewed core groups. The remaining group is Q3_G10, covering floodplain/agricultural wetland restoration outcomes and flood-risk management. Later depth runs recover it, including Gemini Flash at rank 10 and Dense at rank 95.
+
+## 12. Public repository and private artifacts
+
+The public GitHub repository contains source code, prompt definitions, tests, questions, configuration contracts, and onboarding documentation. The following artifacts contain full page text or research outputs and remain outside the public repository:
+
+- `benchmark/corpus_pages.jsonl`
+- `benchmark/pools/candidate_pool_v2_761.jsonl`
+- `benchmark/judgments_v2/`
+- `benchmark/qrels/consensus_qrels_v2.csv`
+- `benchmark/qrels/core_groups.json`
+- `benchmark/candidate_runs/`
+- `benchmark/analysis/`
+
+Authorized collaborators receive these through the approved private reproducibility package. API keys, `.env.local`, billing information, and secrets are never included.
+
+## 13. Reproduction workflow
+
+```powershell
+git clone https://github.com/TonyLi0109/conservation-document-intelligence-v3.git
+cd conservation-document-intelligence-v3
+git checkout v3.1-ir-benchmark-v2-reviewed
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env.local
+```
+
+After placing the authorized frozen artifacts at their documented paths:
+
+```powershell
+python -m pytest -q
+
+python scripts/run_llm_judges.py `
+  --pool benchmark/pools/candidate_pool_v2_761.jsonl `
+  --questions benchmark/questions.csv `
+  --corpus benchmark/corpus_pages.jsonl `
+  --catalog data/source_catalog.csv `
+  --output-dir benchmark/runs/<run_id>/judgments `
+  --resume
+
+python scripts/build_consensus_qrels.py `
+  --pool benchmark/pools/candidate_pool_v2_761.jsonl `
+  --judgment-dir benchmark/runs/<run_id>/judgments `
+  --full-output benchmark/runs/<run_id>/qrels/consensus_qrels_v2_repeat.csv
+```
+
+Do not overwrite reviewed baseline artifacts. Every rerun must use a run-specific directory and record the commit, prompt version, model IDs, commands, timestamps, retries, and environment.
+
+## 14. Production offline regression gate
+
+The deterministic production suite remains separate from the IR benchmark:
+
+| Property | Frozen value |
+|---|---:|
+| Artifact | `evaluation/baselines/offline.json` |
+| Production evidence `top_k` | 6 |
 | Cases | 83 |
 | Passed | 83 |
 | Failed | 0 |
-| Baseline SHA-256 | `c1bd699c1d9f5dc548482d760345f04670bc7bec335a2f8bb878873c292d719e` |
+| Seed | 0 |
+| SHA-256 | `c1bd699c1d9f5dc548482d760345f04670bc7bec335a2f8bb878873c292d719e` |
 
-The offline suite blocks provider calls. Its fixture passes establish deterministic pipeline invariants; they do not estimate live-model answer quality. Partial relevance labels also mean precision and nDCG are judged-label proxies rather than exhaustive corpus relevance measures.
+## 15. Known limitations
 
-## 10. Reproduction procedure
+- Frontier APIs can vary across repeated calls despite fixed configuration.
+- The public repository cannot reproduce judgments without the authorized private corpus and frozen pool.
+- Copilot has only 16 sponsor-supplied candidates and is not a full-depth comparator.
+- Free-text facet labels vary more than grades or page membership; page, Grade-4, group-member, and co-membership stability are more defensible.
+- A comparative generator response can omit a micro-transaction number even when its page survives retrieval; this is a generation-completeness limitation.
+- The current runner preserves parsed judgments and checkpoints; complete raw provider response and structured per-attempt audit logging remain a documented improvement area.
 
-### 10.1 Checkout and environment
+## 16. Change control
 
-```bash
-git clone https://github.com/TonyLi0109/conservation-document-intelligence-v3.git
-cd conservation-document-intelligence-v3
-git checkout v3.0-experimental-baseline
-python -m venv .venv
-# Activate .venv using the command appropriate for the operating system.
-python -m pip install -r requirements.txt
-```
+A new named experiment or version is required for changes to any of the following:
 
-Required baseline settings:
+- corpus membership, extraction, canonical IDs, or frozen hashes;
+- candidate systems, model IDs, prompt, or candidate depth;
+- judging prompt, judge models, schema, or missing-judge policy;
+- relevant/core thresholds or final-grade rounding;
+- human-reviewed core-group membership;
+- run files, metric definitions, or aggregation;
+- production retrieval, lifecycle, provenance, generation, or presentation behavior.
 
-```text
-V3_LLM_MODEL=gpt-5.6-sol
-V3_TOP_K=6
-V3_EMBEDDING_MODEL=text-embedding-3-small
-V3_EMBEDDING_DIMENSION=1536
-```
-
-An OpenAI API credential is required only for live embedding or generation paths. Never store credentials in the freeze manifest.
-
-### 10.2 Verify code and corpus identity
-
-```bash
-git describe --tags --exact-match
-python -c "import json; print(json.load(open('v3_baseline_config.json', encoding='utf-8'))['baseline_id'])"
-```
-
-Expected tag: `v3.0-experimental-baseline`. Expected baseline ID: `CDIRP-V3-EXPERIMENTAL-BASELINE`.
-
-Verify the committed corpus blob without relying on a potentially mutated runtime copy:
-
-```bash
-python -c "import hashlib,subprocess; b=subprocess.check_output(['git','show','v3.0-experimental-baseline:data/corpus.db']); print(hashlib.sha256(b).hexdigest())"
-```
-
-Expected SHA-256: `4d5bb333c07db69302fc8bc1617b4ab0de490b89aac62a3ea1016e9334ea6b70`.
-
-### 10.3 Run gates
-
-```bash
-python -m pytest -q
-python -m evaluation.run --top-k 6 --baseline evaluation/baselines/offline.json --fail-on-regression
-```
-
-A valid baseline run must complete with no failed tests, no failed evaluation cases, and a compatible baseline comparison.
-
-### 10.4 Launch locally
-
-```bash
-streamlit run app.py
-```
-
-Confirm at runtime that the selected generator is `gpt-5.6-sol` and that no deployment-level environment variable overrides `V3_TOP_K=6`.
-
-## 11. Change-control rule
-
-The following changes require a new experimental version or an explicitly named ablation:
-
-- corpus membership, source files, parsing, chunking, or embeddings;
-- `top_k` or any candidate, fusion, rerank, duplicate, or diversity parameter;
-- title/entity routing or lifecycle extraction;
-- generation model, prompt, context assembly, or output token budget;
-- provenance validation or citation rendering;
-- output-template classification, headings, or evidence-gap handling;
-- evaluation datasets, fingerprints, metrics, or pass criteria.
-
-Do not move the `v3.0-experimental-baseline` tag. Corrections after release must receive a new tag and a documented relationship to this baseline.
+Never move either frozen tag. Corrections require a new commit and a new versioned tag with an explicit relationship to these baselines.
