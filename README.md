@@ -1,5 +1,11 @@
 # Conservation Document Intelligence V3
 
+## QGCG 实现审查分支
+
+学长审查入口：**[QGCG 中文实现说明](docs/QGCG_README.md)**。包含完整三阶段算法、
+AND/OR 证据语义、校验与修复机制、实验配置、离线示例、测试和复现实验所需的数据清单。
+本分支新增 `scripts/*qgcg*.py` 与对应测试；人工审查仍待完成，模型核查不等于人工 gold。
+
 V3 is an evidence-grounded research platform over the 35-document legacy
 conservation corpus plus the 2022 Missouri Comprehensive Conservation Strategy.
 It borrows useful ideas from both reference implementations, but owns its data
