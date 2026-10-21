@@ -40,3 +40,12 @@ benchmark/corpus_pages.jsonl
 benchmark/**/.checkpoints/
 benchmark/llm_traces*/
 benchmark/haiku_*/
+
+# Corrected PDF benchmark local inputs, accounts and generated evidence
+/PDF/
+/*Questions.docx
+/Proposed_Core_Groups*.docx
+/benchmark/revised_pdf_*/
+/.claude/
+/.codex/
+/.antigravity/

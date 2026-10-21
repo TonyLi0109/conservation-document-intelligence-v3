@@ -232,6 +232,13 @@ class ExactVectorStore:
 
     def search(self, query_embedding: Embedding, top_k: int) -> list[int]:
         """Return IDs ranked using vectorized cosine similarity."""
+        return [artifact_id for artifact_id, _ in self.search_with_scores(query_embedding, top_k)]
+
+    def search_with_scores(
+        self, query_embedding: Embedding, top_k: int, *,
+        allowed_ids: Sequence[int] | None = None,
+    ) -> list[tuple[int, float]]:
+        """Return chunk IDs and their native cosine similarities, highest first."""
         if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k <= 0:
             raise ValueError("top_k must be a positive integer")
         with self._lock:
@@ -240,13 +247,19 @@ class ExactVectorStore:
             query = _validated_vector(query_embedding, self.dimension)
             query /= np.linalg.norm(query)
             scores = np.dot(self._matrix, query)
-            count = min(top_k, int(scores.size))
-            candidates = np.argpartition(scores, -count)[-count:]
+            eligible = (
+                np.arange(scores.size) if allowed_ids is None
+                else np.flatnonzero(np.isin(self._ids, allowed_ids))
+            )
+            count = min(top_k, int(eligible.size))
+            if not count:
+                return []
+            candidates = eligible[np.argpartition(scores[eligible], -count)[-count:]]
             ranked = candidates[np.argsort(-scores[candidates], kind="stable")]
             if active():
                 capture('dense_search', {'top_k': top_k, 'score_kind': 'cosine_similarity', 'higher_is_better': True,
                     'hits': [{'artifact_id': int(self._ids[i]), 'score': float(scores[i])} for i in ranked]})
-            return [int(self._ids[index]) for index in ranked]
+            return [(int(self._ids[index]), float(scores[index])) for index in ranked]
 
 
 class KnowledgeStore:
